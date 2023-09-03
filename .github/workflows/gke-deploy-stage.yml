@@ -38,6 +38,11 @@ jobs:
        # 输出密钥的一部分
        echo " : oterh environment ${{ env.PROJECT_ID }}"
 
+    - name: print TEST_ENV
+      run: |
+       # 输出密钥的一部分
+       echo " : oterh environment ${{ env.TEST_ENV }}"
+
     - name: Verify Service Account Key
       run: |
        # 输出密钥的一部分
