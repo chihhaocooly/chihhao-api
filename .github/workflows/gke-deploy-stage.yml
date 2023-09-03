@@ -33,6 +33,11 @@ jobs:
     - name: Get Tag Name & Set env
       run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
 
+    - name: oterh environment
+      run: |
+       # 输出密钥的一部分
+       echo " : oterh environment ${{ env.PROJECT_ID }}"
+
     - name: Verify Service Account Key
       run: |
        # 输出密钥的一部分
