@@ -33,20 +33,10 @@ jobs:
     - name: Get Tag Name & Set env
       run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
 
-    - name: oterh environment
-      run: |
-       # 输出密钥的一部分
-       echo " : oterh environment ${{ env.PROJECT_ID }}"
-
     - name: print TEST_ENV
       run: |
        # 输出密钥的一部分
        echo " : oterh environment ${{ env.TEST_ENV }}"
-
-    - name: Verify Service Account Key
-      run: |
-       # 输出密钥的一部分
-       echo "The first 10 characters of the secret key: ${{ secrets.GCP_SA_COOLYHUANG_GITHUB_KEY }}"
 
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v0
@@ -87,4 +77,4 @@ jobs:
       run:  'sed -i -e "s/\(:\)[0-9\.]\{1,\}\(\"\)/\1${{ env.RELEASE_VERSION }}\2/g" ./.kube/stage-deployment.yaml'
 
     - name: Deploy To GKE
-      run: 'gcloud container clusters get-credentials jeff-gke --region asia-east1 --project chihhaoproject && kubectl apply -f ./.kube/stage-deployment.yaml'
+      run: 'kubectl apply -f ./.kube/stage-deployment.yaml'
