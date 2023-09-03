@@ -67,6 +67,9 @@ jobs:
 
     - name: 'get-pods' # 列出 pods , 主要用來判斷是否有取得 GKE 權限
       run: 'kubectl get pods'
+
+    - name: 'get-curret-context' # 列出 pods , 主要用來判斷是否有取得 GKE 權限
+      run: 'kubectl config current-context'
       
     - name: Update index.ts version
       run: 'sed -i -e "s/RELEASE_VERSION/${{ env.RELEASE_VERSION }}/g" ./src/index.ts'
