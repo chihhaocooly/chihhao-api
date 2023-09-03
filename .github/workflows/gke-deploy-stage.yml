@@ -33,6 +33,11 @@ jobs:
     - name: Get Tag Name & Set env
       run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
 
+    - name: Verify Service Account Key
+      run: |
+       # 输出密钥的一部分
+       echo "The first 10 characters of the secret key: ${GCP_SA_COOLYHUANG_GITHUB_KEY:0:10}"
+
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v0
       with:
