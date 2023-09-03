@@ -16,7 +16,7 @@ export const errorHandler = async (
   const errorResponse: BaseResponse = {
     statusCode: 500,
     statusMsg: 'error'
-  }
+  };
   //自訂的錯誤訊息
   if (err instanceof MyError) {
     const { statusCode, message } = err as MyError;
@@ -25,9 +25,5 @@ export const errorHandler = async (
   }
 
   //系統錯誤
-  res
-    .status(errorResponse.statusCode)
-    .send(
-      errorResponse
-    );
+  res.status(errorResponse.statusCode).send(errorResponse);
 };

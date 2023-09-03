@@ -7,7 +7,7 @@ export const auth = (req: Request, res: Response, next: NextFunction) => {
   const apiKey = process.env.INTERNAL_API_KEY || 'chihhao';
 
   if (xApiKey !== apiKey) {
-   console.log(401, 'Invalid API Key');
+    console.log(401, 'Invalid API Key');
   }
   next();
 };

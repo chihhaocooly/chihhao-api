@@ -1,6 +1,6 @@
 {
   "name": "chihhao-api",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "chihhao template",
   "main": "lib/index.js",
   "config": {
@@ -15,7 +15,9 @@
     "test": "jest --coverage",
     "docker:build": "npm run format && docker build --platform linux/amd64 -t $npm_package_config_stageImage:$npm_package_version .",
     "docker:run": "docker run --rm -p 8080:8080 -v ~/.config/gcloud:/etc/gcp-sa $npm_package_config_stageImage:$npm_package_version",
-    "docker:push": "docker push $npm_package_config_stageImage:$npm_package_version"
+    "docker:push": "docker push $npm_package_config_stageImage:$npm_package_version",
+    "deploy:dev": " tsc && docker build -t $npm_package_config_stageImage:$npm_package_version --platform linux/amd64 . && docker push $npm_package_config_stageImage:$npm_package_version && gcloud run deploy chihhao-api --image $npm_package_config_stageImage:$npm_package_version --region asia-east1 --platform managed --allow-unauthenticated",
+    "deploy": "gcloud run deploy chihhao-api --image $npm_package_config_stageImage:$npm_package_version --region asia-east1 --platform managed --allow-unauthenticated"
   },
   "keywords": [],
   "author": "allen@aiii.ai",

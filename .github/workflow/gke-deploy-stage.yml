@@ -1,0 +1,72 @@
+name: Build and Deploy to GKE on PR
+'on':
+  push:
+    tags:
+      - 's*'
+
+env:
+  PROJECT_ID: chihhaoproject
+  GAR_LOCATION: asia-east1
+  GKE_CLUSTER: jeff-gke
+  GKE_ZONE: asia-east1
+  DEPLOYMENT_NAME: chihhao-api
+  REPOSITORY: developer-docker
+  IMAGE: chihhao-api
+
+jobs:
+  setup-build-publish-deploy:
+    name: Setup, Build, Publish, and Deploy
+    runs-on: ubuntu-latest
+    environment: production
+
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+    - uses: actions/setup-node@v3
+      with:
+        node-version: 14
+    - run: node -v
+    - name: Get Tag Name & Set env
+      run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v0
+      with:
+        project_id: ${{ env.PROJECT_ID }}
+        service_account_key: ${{ secrets.GCP_SA_COOLYHUANG_GITHUB_KEY }}
+        export_default_credentials: true
+
+    - name: Set Configure Docker
+      run: gcloud auth configure-docker asia-east1-docker.pkg.dev
+
+    # Get the GKE credentials, so we can deploy to the cluster
+    - name: Set up GKE credentials
+      uses: google-github-actions/get-gke-credentials@v0
+      with:
+        cluster_name: ${{ env.GKE_CLUSTER }}
+        location: ${{ env.GKE_ZONE }}
+
+    - name: 'get-pods' # 列出 pods , 主要用來判斷是否有取得 GKE 權限
+      run: 'kubectl get pods'
+      
+    - name: Update index.ts version
+      run: 'sed -i -e "s/RELEASE_VERSION/${{ env.RELEASE_VERSION }}/g" ./src/index.ts'
+
+    - name: Server CI and Build
+      run: npm ci && npm run build
+
+    - name: Docker Build Image
+      run: docker build -t asia-east1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE }}:${{ env.RELEASE_VERSION }}  -t asia-east1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE }}:latest .
+
+    - name: Docker Push Image
+      run: docker push asia-east1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE }}  --all-tags
+
+    - name: Update deployment.yaml Tag # 自動修改 yaml 版號
+      run:  'sed -i -e "s/\(:\)[0-9\.]\{1,\}\(\"\)/\1${{ env.RELEASE_VERSION }}\2/g" ./.kube/stage-deployment.yaml'
+
+    - name: Deploy To GKE
+      run: 'gcloud container clusters get-credentials jeff-gke --region asia-east1 --project chihhaoproject && kubectl apply -f ./.kube/stage-deployment.yaml'
