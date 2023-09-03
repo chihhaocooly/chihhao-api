@@ -36,7 +36,7 @@ jobs:
     - name: Verify Service Account Key
       run: |
        # 输出密钥的一部分
-       echo "The first 10 characters of the secret key: ${GCP_SA_COOLYHUANG_GITHUB_KEY:0:10}"
+       echo "The first 10 characters of the secret key: ${{ secrets.GCP_SA_COOLYHUANG_GITHUB_KEY }}"
 
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v0
