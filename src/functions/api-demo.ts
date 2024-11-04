@@ -7,7 +7,7 @@ import { BaseResponse } from '../@types/base-response';
 export const apiDemo = async (req: Request, resp: Response) => {
   let base: BaseResponse = {
     statusCode: 200,
-    statusMsg: ''
+    statusMsg: '',
   };
   base['name'] = 'chihhao';
 

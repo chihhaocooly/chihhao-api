@@ -1,3 +1,3 @@
 export const commonEnv = {
-  IS_DEV: process.env.IS_DEV === 'true'
+  IS_DEV: process.env.IS_DEV === 'true',
 };
