@@ -1,1 +1,0 @@
-ABS_PATH=$(pwd)
