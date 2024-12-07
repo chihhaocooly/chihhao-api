@@ -1,17 +1,22 @@
 {
   "compilerOptions": {
+    "target": "es2017",
     "module": "commonjs",
     "noImplicitReturns": true,
     "noUnusedLocals": true,
     "sourceMap": true,
     "strict": true,
     "esModuleInterop": true,
-    "target": "es6",
-    "typeRoots": ["node_modules/@types", "src/@types"],
+    "typeRoots": [
+      "node_modules/@types",
+      "src/@types"
+    ],
     "outDir": "lib",
     "moduleResolution": "node",
     "resolveJsonModule": true,
-    "noImplicitAny": false
+    "noImplicitAny": false,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
   },
   "include": [
     "src"

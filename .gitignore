@@ -80,3 +80,7 @@ typings/
 
 secrets/
 
+atuoGeneratorFile/
+
+src/mysql/migrations/
+
