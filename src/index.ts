@@ -5,8 +5,8 @@ import { auth } from './middlewares/auth';
 import 'express-async-errors'; // 讓非同步API也可以抓到throw的錯誤
 import { errorHandler } from './middlewares/error-handler';
 import { apiDemo } from './functions/api-demo';
+import lineMessageRouter from './controller/lineMessage';
 import { AppDataSource } from './mysql/data-source';
-import { LineMessageRepository } from './mysql/repositories/lineMessageRepository';
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -38,16 +38,13 @@ app.use(auth);
 //!!!!!!取用此template，請將demo相關內容移除!!!!!!!!
 chihhaoRouter.get('/demo', apiDemo);
 
+chihhaoRouter.use('/lineMessage', lineMessageRouter);
+
 //錯誤處理器，需擺在所有方法最後面
 app.use(errorHandler);
 
 const port = process.env.PORT || 8080;
 app.listen(port, async () => {
-  await AppDataSource.initialize();
-
-  const lineMessageRepository = new LineMessageRepository();
-  const lineMessage = await lineMessageRepository.findByLineMessageKey('30c9acef-6a14-4b35-9390-2ae88165b84e');
-  console.log('lineMessage', lineMessage);
-
+  AppDataSource.initialize();
   console.log('🚀 Server ready on port', port);
 });
