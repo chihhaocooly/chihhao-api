@@ -25,20 +25,15 @@ app.get('/', (__, res) => {
 
 // TODO 請將以下的demoRouter改成所需的路由名稱
 //!!!!!!取用此template，請將demo相關內容移除，並建立自己所需的基礎Router!!!!!!!!
-const chihhaoRouter = express.Router();
-app.use('/chihhao', chihhaoRouter);
 
-chihhaoRouter.get('/', (__, res) => {
-  res.send('OK');
-});
 
 //以下接口會開始對API KEY進行檢查，以下此行請針對各自專案的需求，自行修改router與擺放位置
 app.use(auth);
 
 //!!!!!!取用此template，請將demo相關內容移除!!!!!!!!
-chihhaoRouter.get('/demo', apiDemo);
+app.get('/demo', apiDemo);
 
-chihhaoRouter.use('/lineMessage', lineMessageRouter);
+app.use('/lineMessage', lineMessageRouter);
 
 //錯誤處理器，需擺在所有方法最後面
 app.use(errorHandler);
@@ -46,5 +41,6 @@ app.use(errorHandler);
 const port = process.env.PORT || 8080;
 app.listen(port, async () => {
   AppDataSource.initialize();
+
   console.log('🚀 Server ready on port', port);
 });
