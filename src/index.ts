@@ -40,7 +40,7 @@ app.use(errorHandler);
 
 const port = process.env.PORT || 8080;
 app.listen(port, async () => {
-  AppDataSource.initialize();
+  await AppDataSource.initialize();
 
   console.log('🚀 Server ready on port', port);
 });
