@@ -27,8 +27,9 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
-    "@chihhaocooly/chihhao-package": "^1.0.8",
+    "@chihhaocooly/chihhao-package": "^1.0.10",
     "@google-cloud/secret-manager": "^4.1.4",
+    "@line/bot-sdk": "^8.0.2",
     "axios": "^0.21.1",
     "cors": "^2.8.5",
     "express": "^4.17.1",

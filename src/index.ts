@@ -7,6 +7,7 @@ import { errorHandler } from './middlewares/error-handler';
 import { apiDemo } from './functions/api-demo';
 import lineMessageRouter from './controller/lineMessage';
 import { AppDataSource } from './mysql/data-source';
+import webhookRouter from './controller/webhook';
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -16,6 +17,7 @@ app.use(
     extended: true
   })
 );
+
 
 app.use(helmet());
 
@@ -28,12 +30,14 @@ app.get('/', (__, res) => {
 
 
 //以下接口會開始對API KEY進行檢查，以下此行請針對各自專案的需求，自行修改router與擺放位置
+app.use('/webhook', webhookRouter);
+
 app.use(auth);
+
+app.use('/lineMessage', lineMessageRouter);
 
 //!!!!!!取用此template，請將demo相關內容移除!!!!!!!!
 app.get('/demo', apiDemo);
-
-app.use('/lineMessage', lineMessageRouter);
 
 //錯誤處理器，需擺在所有方法最後面
 app.use(errorHandler);
@@ -41,6 +45,5 @@ app.use(errorHandler);
 const port = process.env.PORT || 8080;
 app.listen(port, async () => {
   await AppDataSource.initialize();
-
   console.log('🚀 Server ready on port', port);
 });
