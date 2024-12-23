@@ -6,8 +6,8 @@ import 'express-async-errors'; // 讓非同步API也可以抓到throw的錯誤
 import { errorHandler } from './middlewares/error-handler';
 import { apiDemo } from './functions/api-demo';
 import lineMessageRouter from './controller/lineMessage';
-import { AppDataSource } from './mysql/data-source';
 import webhookRouter from './controller/webhook';
+import { AppDataSource } from '@chihhaocooly/chihhao-package';
 
 const app = express();
 app.use(cors({ origin: true }));

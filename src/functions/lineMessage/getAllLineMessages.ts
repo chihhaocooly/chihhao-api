@@ -1,4 +1,4 @@
-import { LineMessageRepository } from "../../mysql/repositories/lineMessageRepository";
+import { LineMessageRepository } from "@chihhaocooly/chihhao-package";
 
 export const getAllLineMessages = async () => {
 
