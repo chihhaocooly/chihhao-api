@@ -80,7 +80,7 @@ typings/
 
 secrets/
 
-atuoGeneratorFile/
+autoGeneratorFile/
 
 src/mysql/migrations/
 
