@@ -9,7 +9,6 @@ export const auth = async (req: Request, res: Response, next: NextFunction): Pro
   const auth = getFirebaseAuth();
   const idToken = req.headers.authorization?.split('Bearer ')[1]; // 確保提取 Bearer token
 
-  console.log('idToken =>', idToken);
   if (!idToken) {
     res.status(401).send('Unauthorized');
     return; // 明確地返回

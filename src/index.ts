@@ -48,5 +48,6 @@ app.use(errorHandler);
 const port = process.env.PORT || 8080;
 app.listen(port, async () => {
   await AppDataSource.initialize();
+
   console.log('🚀 Server ready on port', port);
 });
