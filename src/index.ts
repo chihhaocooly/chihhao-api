@@ -31,23 +31,27 @@ app.get('/', (__, res) => {
 
 
 //以下接口會開始對API KEY進行檢查，以下此行請針對各自專案的需求，自行修改router與擺放位置
-app.use('/webhook', webhookRouter);
-
-app.use(auth);
-
-app.use('/lineMessage', lineMessageRouter);
-
-app.use('/richMenu', richMenuRouter);
-
-//!!!!!!取用此template，請將demo相關內容移除!!!!!!!!
-app.get('/demo', apiDemo);
-
-//錯誤處理器，需擺在所有方法最後面
-app.use(errorHandler);
 
 const port = process.env.PORT || 8080;
-app.listen(port, async () => {
-  await AppDataSource.initialize();
 
-  console.log('🚀 Server ready on port', port);
-});
+(async () => {
+  try {
+    // 確保資料庫初始化完成
+    await AppDataSource.initialize();
+    console.log('🚀 Database initialized');
+    app.use('/webhook', webhookRouter);
+    app.use(auth);
+    app.use('/lineMessage', lineMessageRouter);
+
+    app.use('/richMenu', richMenuRouter);
+    app.get('/demo', apiDemo);
+    app.use(errorHandler);
+
+    app.listen(port, () => {
+      console.log(`🚀 Server ready on port ${port}`);
+    });
+  } catch (error) {
+    console.error("Failed to initialize database:", error);
+    process.exit(1); // 無法初始化時退出程序
+  }
+})();
