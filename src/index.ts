@@ -8,7 +8,7 @@ import { apiDemo } from './functions/api-demo';
 import lineMessageRouter from './controller/lineMessage';
 import webhookRouter from './controller/webhook';
 import { AppDataSource } from '@chihhaocooly/chihhao-package';
-import richmenuRouter from './controller/rich-menu';
+import richmenuRouter from './controller/richmenu';
 
 const app = express();
 app.use(cors({ origin: true }));

@@ -1,5 +1,5 @@
 import express from 'express';
-import apiGetAllRichmenuList from './apiGetAllRich-menuList';
+import apiGetAllRichmenuList from './apiGetAllRichmenuList';
 
 
 const richmenuRouter = express.Router();
