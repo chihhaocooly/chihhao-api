@@ -8,7 +8,7 @@ import { apiDemo } from './functions/api-demo';
 import lineMessageRouter from './controller/lineMessage';
 import webhookRouter from './controller/webhook';
 import { AppDataSource } from '@chihhaocooly/chihhao-package';
-import richMenuRouter from './controller/richMenu';
+import richmenuRouter from './controller/rich-menu';
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -43,7 +43,7 @@ const port = process.env.PORT || 8080;
     app.use(auth);
     app.use('/lineMessage', lineMessageRouter);
 
-    app.use('/richMenu', richMenuRouter);
+    app.use('/richmenu', richmenuRouter);
     app.get('/demo', apiDemo);
     app.use(errorHandler);
 
