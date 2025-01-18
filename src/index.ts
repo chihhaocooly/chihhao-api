@@ -9,6 +9,7 @@ import lineMessageRouter from './controller/lineMessage';
 import webhookRouter from './controller/webhook';
 import { AppDataSource } from '@chihhaocooly/chihhao-package';
 import richmenuRouter from './controller/richmenu';
+import axios from 'axios';
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -40,12 +41,21 @@ const port = process.env.PORT || 8080;
     await AppDataSource.initialize();
     console.log('🚀 Database initialized');
     app.use('/webhook', webhookRouter);
+
+    // 加上一個取得 outbound IP 的 API
+    app.get('/getOutboundIp', async (req, res) => {
+      const response = await axios.get('https://api.ipify.org?format=json');
+      res.json(response.data);
+    });
+
     app.use(auth);
     app.use('/lineMessage', lineMessageRouter);
 
     app.use('/richmenu', richmenuRouter);
     app.get('/demo', apiDemo);
     app.use(errorHandler);
+
+
 
     app.listen(port, () => {
       console.log(`🚀 Server ready on port ${port}`);
