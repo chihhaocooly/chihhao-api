@@ -27,7 +27,7 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
-    "@chihhaocooly/chihhao-package": "^1.0.15",
+    "@chihhaocooly/chihhao-package": "^1.0.16",
     "@google-cloud/secret-manager": "^4.1.4",
     "@line/bot-sdk": "^8.0.2",
     "axios": "^0.21.1",
@@ -42,6 +42,7 @@
     "reflect-metadata": "^0.2.2",
     "typeorm": "^0.3.20",
     "typescript": "^4.3.5",
+    "@line/bot-sdk": "7.4.0",
     "uuid": "^8.3.2"
   },
   "devDependencies": {
