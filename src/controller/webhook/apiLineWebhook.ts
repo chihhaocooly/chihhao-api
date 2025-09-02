@@ -28,7 +28,6 @@ async function getInstance(): Promise<LineWebhook> {
  * @param res
  */
 export const apiLineWebhook = async (req: Request, res: Response) => {
-  console.log('apiLineWebhook');
   console.log('🚀 headers =>', JSON.stringify(req.headers));
   console.log('🚀 path =>', req.path, ' body =>', JSON.stringify(req.body));
   const lineWebhook = await getInstance();
