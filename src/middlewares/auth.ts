@@ -1,37 +1,40 @@
 import { Request, Response, NextFunction } from 'express';
 import { getFirebaseAuth } from '../firebase/getFirebaseAuth';
-import { verifyGoogleAccessToken } from './verifyGoogleAccessToken';
+import { UserRepository } from '@chihhaocooly/chihhao-package';
 
 export const auth = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-  console.log('headers =>', JSON.stringify(req.headers));
-  console.log('body =>', JSON.stringify(req.body));
-
-  const auth = getFirebaseAuth();
-  const idToken = req.headers.authorization?.split('Bearer ')[1]; // 確保提取 Bearer token
+  const firebaseAuth = getFirebaseAuth();
+  const idToken = req.headers.authorization?.startsWith('Bearer ')
+    ? req.headers.authorization.slice('Bearer '.length)
+    : undefined;
 
   if (!idToken) {
-    res.status(401).send('Unauthorized');
-    return; // 明確地返回
+    res.status(401).json({ statusCode: 401, statusMsg: 'Unauthorized' });
+    return;
   }
 
   try {
-    if (isFirebaseIdToken(idToken)) {
-      const decodedToken = await auth.verifyIdToken(idToken, true);
+    const decodedToken = await firebaseAuth.verifyIdToken(idToken, true);
+    const userRepository = new UserRepository();
+    const user = await userRepository.findByFirebaseUid(decodedToken.uid);
 
-      console.log('decodedToken =>', JSON.stringify(decodedToken));
-      req.body.uid = decodedToken.uid;
-    } else {
-      await verifyGoogleAccessToken(idToken);
+    if (!user || user.status !== 'active') {
+      res.status(403).json({ statusCode: 403, statusMsg: 'Forbidden' });
+      return;
     }
-    return next(); // 確保 next() 在成功的情況下被執行
+
+    req.authContext = {
+      uid: decodedToken.uid,
+      email: decodedToken.email ?? user.email,
+      userId: user.id,
+      role: user.role,
+      status: user.status,
+    };
+
+    return next();
   } catch (error) {
     console.error('Error verifying token:', error);
-    res.status(401).send('Unauthorized'); // 處理驗證錯誤
+    res.status(401).json({ statusCode: 401, statusMsg: 'Unauthorized' });
     return;
   }
 };
-
-function isFirebaseIdToken(token: string): boolean {
-  // Firebase ID Token 是 JWT，必須包含兩個 `.` 分隔符
-  return token.split('.').length === 3;
-}

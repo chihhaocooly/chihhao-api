@@ -7,10 +7,12 @@ import { errorHandler } from './middlewares/error-handler';
 import { apiDemo } from './functions/api-demo';
 import lineMessageRouter from './controller/lineMessage';
 import webhookRouter from './controller/webhook';
-// import { AppDataSource } from '@chihhaocooly/chihhao-package';
+import { AppDataSource } from '@chihhaocooly/chihhao-package';
 import richmenuRouter from './controller/richmenu';
 import axios from 'axios';
 import { apiGetPartInfo } from './functions/api-get-park-info';
+import authRouter from './controller/auth';
+import adminUsersRouter from './controller/adminUsers';
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -37,7 +39,9 @@ const port = process.env.PORT || 8080;
 (async () => {
   try {
     // 確保資料庫初始化完成
-    // await AppDataSource.initialize();
+    if (!AppDataSource.isInitialized) {
+      await AppDataSource.initialize();
+    }
     console.log('🚀 Database initialized');
     app.use('/webhook', webhookRouter);
 
@@ -49,6 +53,8 @@ const port = process.env.PORT || 8080;
     app.post('/getPartInfo', apiGetPartInfo);
 
     app.use(auth);
+    app.use('/auth', authRouter);
+    app.use('/admin', adminUsersRouter);
     app.use('/lineMessage', lineMessageRouter);
 
     app.use('/richmenu', richmenuRouter);
