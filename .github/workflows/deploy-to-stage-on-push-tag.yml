@@ -1,4 +1,4 @@
-name: Deploy To Prod On Push Tag (aiii-api-med)
+name: Deploy To Prod On Push Tag
 
 'on':
   push:
