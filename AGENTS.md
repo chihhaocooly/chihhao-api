@@ -34,25 +34,36 @@ chihhao-angular -> chihhao-api -> @chihhaocooly/chihhao-package
 
 - 只改 API 內部實作且不改 endpoint contract：通常只需要修改 `chihhao-api`，但仍需跑本 repo build/test。
 - 新增或修改 endpoint、request/response shape、錯誤碼或權限：先更新或確認規格，再修改本 repo，最後同步 Angular service/type/UI。
-- 需要新的 package DTO、entity、repository、migration 或 LINE webhook 共用行為：先到 `chihhao-package` 修改與 build，再回本 repo 對接，最後檢查 Angular 是否受 API contract 影響。
+- 需要新的 package DTO、entity、repository、migration 或 LINE webhook 共用行為：先到 `chihhao-package` 修改、build、commit 並發布正式版本；本 repo 安裝該正式版本後再繼續對接，最後檢查 Angular 是否受 API contract 影響。
 - 若只是不確定前端需求或畫面流程，不要猜測欄位；到 `chihhao-angular` 查 spec、route、component 與 API service。
 
 跨 repo 驗證建議：
 
 - 只改 API：在 `chihhao-api` 執行 `npm run build`，若動到 business logic、middleware、controller 或型別，優先也跑 `npm test`。
 - 改 API + Angular：先在 `chihhao-api` 執行 `npm run build`，必要時 `npm test`；再回 `chihhao-angular` 執行 `npm run build`。
-- 改 package + API：先在 `chihhao-package` 執行 `npm run build`；再讓本 repo 對接已發布版本或本機 build 後的 package，最後在 `chihhao-api` 執行 `npm run build`。
-- 改 package + API + Angular：先 build package，再 build/test API，最後 build Angular。
+- 改 package + API：先在 `chihhao-package` 執行 build/test、commit、tag/publish；再讓本 repo 安裝已發布版本，最後在 `chihhao-api` 執行 `npm run build` 與 `npm test`。
+- 改 package + API + Angular：先發布 package 正式版本，再更新/build/test API，最後依 API contract build/test Angular。
 - 不要在未獲明確要求時執行 deploy、docker push、npm publish、migration:run、migration:revert、sync-db-schema 或其他會改遠端資源/資料庫的指令。
 
-若 `chihhao-package` 有尚未發布的新 public exports、DTO、entity、repository 或 migration，而本 repo 需要立即對接驗證：
+若 `chihhao-package` 有 public exports、DTO、entity、repository、migration 或 LINE/MySQL 行為變更，預設必須先發布正式 package 版本，再讓本 repo 更新正式 dependency/lockfile；不要把本機 package 安裝當作完成驗證。
+
+本機 package 對接只允許作為短期探索例外。若 package 尚未發布，而本 repo 需要立即確認可行性：
 
 1. 先在 `/Users/huangcooly/Documents/GitHubForChihhao/chihhao-package` 執行 `npm run build`。
-2. 再到 `/Users/huangcooly/Documents/GitHubForChihhao/chihhao-api` 執行 `npm install ../chihhao-package --no-save`，讓本機 `node_modules` 暫時使用隔壁 repo build 後的 package。
+2. 優先用 package repo 的 `npm pack` tarball 做短期安裝驗證；避免直接 `npm install ../chihhao-package --no-save` 污染本 repo 的 `node_modules` dependency tree。
 3. 在 `chihhao-api` 執行 `npm run build`，必要時執行 `npm test`。
-4. 回報時要明確說明這只是本機驗證手段，沒有修改正式 dependency 宣告；正式部署前仍需發布新版 `@chihhaocooly/chihhao-package`，再更新本 repo 的 dependency/lockfile。
+4. 回報時要明確說明這只是本機探索驗證，不能作為完成狀態；正式開發與部署前仍需發布新版 `@chihhaocooly/chihhao-package`，再更新本 repo 的 dependency/lockfile。
 
 不要把 `chihhao-api/package.json` 改成 `file:../chihhao-package`，除非使用者明確要求改成本機 workspace/link 開發模式。
+
+更新 package 版本後，必須同時確認：
+
+```sh
+node -p "require('./package.json').dependencies['@chihhaocooly/chihhao-package']"
+node -p "require('./package-lock.json').packages['node_modules/@chihhaocooly/chihhao-package'].version"
+```
+
+`package.json` 的 semver range 不是實際部署版本；正式驗證以 lockfile 解析到的版本為準。
 
 ## 安裝與本機開發
 
