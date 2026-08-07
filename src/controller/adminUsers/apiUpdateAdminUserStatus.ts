@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { UpdateUserStatusRequest, UserRepository, UserStatus } from '@chihhaocooly/chihhao-package';
+import { syncUserClaims } from '../../firebase/userClaims';
 
 const userStatuses: UserStatus[] = ['active', 'disabled', 'pending'];
 
@@ -21,6 +22,7 @@ const apiUpdateAdminUserStatus = async (req: Request, res: Response): Promise<vo
 
   user.status = payload.status;
   const savedUser = await userRepository.save(user);
+  await syncUserClaims(savedUser, { revokeRefreshTokens: true });
 
   res.json({ id: savedUser.id, status: savedUser.status });
 };

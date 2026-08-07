@@ -27,6 +27,7 @@ const apiGetMe = async (req: Request, res: Response): Promise<void> => {
     displayName: user.displayName,
     role: user.role,
     status: user.status,
+    loginMethod: user.loginMethod,
   };
 
   res.json(response);

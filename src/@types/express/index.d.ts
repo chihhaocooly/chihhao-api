@@ -1,4 +1,4 @@
-import { UserRole, UserStatus } from '@chihhaocooly/chihhao-package';
+import { LoginMethod, UserRole, UserStatus } from '@chihhaocooly/chihhao-package';
 
 declare global {
   namespace Express {
@@ -8,6 +8,7 @@ declare global {
       userId: string;
       role: UserRole;
       status: UserStatus;
+      loginMethod: LoginMethod;
     }
 
     interface Request {

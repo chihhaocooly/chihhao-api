@@ -7,6 +7,7 @@ export const toAdminUserDto = (user: User): AdminUserDto => ({
   displayName: user.displayName,
   role: user.role,
   status: user.status,
+  loginMethod: user.loginMethod,
   createdAt: user.createdAt ?? null,
   updatedAt: user.updatedAt ?? null,
   lastLoginAt: user.lastLoginAt ?? null,

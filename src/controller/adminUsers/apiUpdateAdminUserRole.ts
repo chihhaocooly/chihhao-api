@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { BackofficeUserRole, UpdateUserRoleRequest, UserRepository } from '@chihhaocooly/chihhao-package';
+import { syncUserClaims } from '../../firebase/userClaims';
 
 const backofficeRoles: BackofficeUserRole[] = ['admin', 'manager', 'viewer'];
 
@@ -21,6 +22,7 @@ const apiUpdateAdminUserRole = async (req: Request, res: Response): Promise<void
 
   user.role = payload.role;
   const savedUser = await userRepository.save(user);
+  await syncUserClaims(savedUser, { revokeRefreshTokens: true });
 
   res.json({ id: savedUser.id, role: savedUser.role });
 };
