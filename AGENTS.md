@@ -10,6 +10,50 @@
 - 主要外部服務包含 Firebase Admin Auth、Google Application Default Credentials、LINE Bot SDK、Google Cloud、以及 `@chihhaocooly/chihhao-package`。
 - README 目前內容很短，請以 `package.json`、`src/index.ts`、workflow 與本檔為準。
 
+## 相關 Repos 與協作邊界
+
+這個 workspace 主要有三個互相關聯的 repo：
+
+- `/Users/huangcooly/Documents/GitHubForChihhao/chihhao-angular`：前端 Angular app，透過 HTTP 呼叫本 repo。
+- `/Users/huangcooly/Documents/GitHubForChihhao/chihhao-api`：後端 TypeScript/Express API，是 Angular 與 package 之間的 contract 層。
+- `/Users/huangcooly/Documents/GitHubForChihhao/chihhao-package`：共用 TypeScript library，發布為 `@chihhaocooly/chihhao-package`，供本 repo 使用 LINE webhook、MySQL/TypeORM entity/repository 與 DTO/type。
+
+依賴方向：
+
+```text
+chihhao-angular -> chihhao-api -> @chihhaocooly/chihhao-package
+```
+
+- Angular 不直接依賴 `chihhao-package`；前端資料 shape 應由本 repo 的 HTTP API contract 穩定提供。
+- 本 repo 不應複製 package 的 entity、repository 或 DTO；需要共用型別時，先確認 `chihhao-package` 是否已有 public export。
+- 修改 API response、request、route 或 auth 行為時，必須同步檢查 Angular API service 與畫面使用點，尤其是 `chihhao-angular/src/app/shared/chih-hao-api/`。
+- 修改 package public exports、DTO/type、entity、repository、migration 或 LINE/MySQL 行為時，必須同步檢查本 repo 對 `@chihhaocooly/chihhao-package` 的依賴版本與使用點。
+- 新增模組、跨 repo 功能、API contract 變更或資料模型變更時，規格以 Angular repo 的 `specs/modules/<module-name>/` 為主要入口；若需求文件已存在於其他規格目錄，先確認使用者要沿用哪個位置，不要分裂成兩套 contract。
+
+從本 repo 開始工作時，請先判斷變更範圍：
+
+- 只改 API 內部實作且不改 endpoint contract：通常只需要修改 `chihhao-api`，但仍需跑本 repo build/test。
+- 新增或修改 endpoint、request/response shape、錯誤碼或權限：先更新或確認規格，再修改本 repo，最後同步 Angular service/type/UI。
+- 需要新的 package DTO、entity、repository、migration 或 LINE webhook 共用行為：先到 `chihhao-package` 修改與 build，再回本 repo 對接，最後檢查 Angular 是否受 API contract 影響。
+- 若只是不確定前端需求或畫面流程，不要猜測欄位；到 `chihhao-angular` 查 spec、route、component 與 API service。
+
+跨 repo 驗證建議：
+
+- 只改 API：在 `chihhao-api` 執行 `npm run build`，若動到 business logic、middleware、controller 或型別，優先也跑 `npm test`。
+- 改 API + Angular：先在 `chihhao-api` 執行 `npm run build`，必要時 `npm test`；再回 `chihhao-angular` 執行 `npm run build`。
+- 改 package + API：先在 `chihhao-package` 執行 `npm run build`；再讓本 repo 對接已發布版本或本機 build 後的 package，最後在 `chihhao-api` 執行 `npm run build`。
+- 改 package + API + Angular：先 build package，再 build/test API，最後 build Angular。
+- 不要在未獲明確要求時執行 deploy、docker push、npm publish、migration:run、migration:revert、sync-db-schema 或其他會改遠端資源/資料庫的指令。
+
+若 `chihhao-package` 有尚未發布的新 public exports、DTO、entity、repository 或 migration，而本 repo 需要立即對接驗證：
+
+1. 先在 `/Users/huangcooly/Documents/GitHubForChihhao/chihhao-package` 執行 `npm run build`。
+2. 再到 `/Users/huangcooly/Documents/GitHubForChihhao/chihhao-api` 執行 `npm install ../chihhao-package --no-save`，讓本機 `node_modules` 暫時使用隔壁 repo build 後的 package。
+3. 在 `chihhao-api` 執行 `npm run build`，必要時執行 `npm test`。
+4. 回報時要明確說明這只是本機驗證手段，沒有修改正式 dependency 宣告；正式部署前仍需發布新版 `@chihhaocooly/chihhao-package`，再更新本 repo 的 dependency/lockfile。
+
+不要把 `chihhao-api/package.json` 改成 `file:../chihhao-package`，除非使用者明確要求改成本機 workspace/link 開發模式。
+
 ## 安裝與本機開發
 
 `.npmrc` 使用 GitHub Packages：
