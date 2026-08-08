@@ -11,6 +11,7 @@ env:
   REPOSITORY: developer-docker
   IMAGE: chihhao-api
   SERVICE: chihhao-api
+  LINE_MESSAGE_IMAGE_BUCKET: chihhaoproject.firebasestorage.app
   CHIHHAO_NPM_DOWNLOAD_TOKEN: ${{ secrets.CHIHHAO_NPM_DOWNLOAD_TOKEN }}
 
 
@@ -72,4 +73,4 @@ jobs:
         run: docker push asia-east1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE }} --all-tags
 
       - name: Deploy To Cloud Run
-        run: 'gcloud run deploy ${{ env.SERVICE }} --image asia-east1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE }}:${{ env.RELEASE_VERSION }} --region asia-east1 --platform managed --allow-unauthenticated'
+        run: 'gcloud run deploy ${{ env.SERVICE }} --image asia-east1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE }}:${{ env.RELEASE_VERSION }} --region asia-east1 --platform managed --allow-unauthenticated --update-env-vars LINE_MESSAGE_IMAGE_BUCKET=${{ env.LINE_MESSAGE_IMAGE_BUCKET }},LINE_MESSAGE_IMAGE_MAKE_PUBLIC=true'
