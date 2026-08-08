@@ -1,19 +1,32 @@
 import express from 'express';
+import multer from 'multer';
 import apiGetAllLineMessages from './apiGetAllLineMessages';
 import { requireRole } from '../../middlewares/requireRole';
 import apiCopyLineMessage from './apiCopyLineMessage';
 import apiCreateLineMessage from './apiCreateLineMessage';
 import apiDeleteLineMessage from './apiDeleteLineMessage';
+import apiDeleteLineMessageImageAsset from './apiDeleteLineMessageImageAsset';
 import apiGetLineMessage from './apiGetLineMessage';
+import apiGetLineMessageImageAssetReferences from './apiGetLineMessageImageAssetReferences';
 import apiGetLineMessageReferences from './apiGetLineMessageReferences';
 import apiGetReplySettings from './apiGetReplySettings';
 import apiListLineMessages from './apiListLineMessages';
+import apiListLineMessageImageAssets from './apiListLineMessageImageAssets';
 import apiUpdateLineMessage from './apiUpdateLineMessage';
 import apiUpdateReplySettings from './apiUpdateReplySettings';
+import apiUploadLineMessageImageAsset from './apiUploadLineMessageImageAsset';
 import apiValidateLineMessage from './apiValidateLineMessage';
+import { maxLineMessageImageBytes } from '../../functions/lineMessage/lineMessageImageAssetService';
 
 
 const lineMessageRouter = express.Router();
+const uploadLineMessageImage = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: maxLineMessageImageBytes,
+        files: 1,
+    },
+});
 
 lineMessageRouter.get('/allLineMessages',
     requireRole(['admin', 'manager', 'viewer']),
@@ -38,6 +51,27 @@ lineMessageRouter.get('/settings/replies',
 lineMessageRouter.put('/settings/replies',
     requireRole(['admin', 'manager']),
     apiUpdateReplySettings
+);
+
+lineMessageRouter.get('/assets/images',
+    requireRole(['admin', 'manager', 'viewer']),
+    apiListLineMessageImageAssets
+);
+
+lineMessageRouter.post('/assets/images',
+    requireRole(['admin', 'manager']),
+    uploadLineMessageImage.single('image'),
+    apiUploadLineMessageImageAsset
+);
+
+lineMessageRouter.get('/assets/images/:imageAssetKey/references',
+    requireRole(['admin', 'manager', 'viewer']),
+    apiGetLineMessageImageAssetReferences
+);
+
+lineMessageRouter.delete('/assets/images/:imageAssetKey',
+    requireRole(['admin', 'manager']),
+    apiDeleteLineMessageImageAsset
 );
 
 lineMessageRouter.post('/',

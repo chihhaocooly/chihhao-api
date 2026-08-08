@@ -56,7 +56,7 @@ export interface ValidateLineMessageResult {
 }
 
 export interface LineMessageReferenceDto {
-  type: 'welcome' | 'defaultReply' | 'keyword' | 'future';
+  type: 'welcome' | 'defaultReply' | 'keyword' | 'imageAsset' | 'future';
   label: string;
   lineMessageKey: string;
 }
