@@ -160,7 +160,6 @@ export const deleteLineMessage = async (lineMessageKey: string) => {
 
 export const getLineMessageReferences = async (lineMessageKey: string): Promise<LineMessageReferenceDto[]> => {
   const settings = await getReplySettings();
-  const allMessages = await new LineMessageRepository().findAll();
   const references: LineMessageReferenceDto[] = [];
 
   if (settings.welcomeLineMessageKey === lineMessageKey) {
@@ -169,11 +168,6 @@ export const getLineMessageReferences = async (lineMessageKey: string): Promise<
 
   if (settings.defaultReplyLineMessageKeys.includes(lineMessageKey)) {
     references.push({ type: 'defaultReply', label: '預設回覆', lineMessageKey });
-  }
-
-  const keywordOwner = allMessages.find((message) => message.lineMessageKey === lineMessageKey && normalizeKeywords(message.keyWords).length > 0);
-  if (keywordOwner) {
-    references.push({ type: 'keyword', label: '關鍵字回覆', lineMessageKey });
   }
 
   return references;
