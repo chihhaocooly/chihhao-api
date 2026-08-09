@@ -4,6 +4,7 @@ import { uploadLineMessageImageAsset } from '../../functions/lineMessage/lineMes
 const apiUploadLineMessageImageAsset = async (req: Request, res: Response): Promise<void> => {
   const result = await uploadLineMessageImageAsset({
     file: req.file as Express.Multer.File,
+    assetKind: req.body?.assetKind,
     createdByUserId: req.authContext?.userId ?? null,
   });
 

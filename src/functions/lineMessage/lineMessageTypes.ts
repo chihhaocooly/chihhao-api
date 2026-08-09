@@ -1,15 +1,73 @@
 import { LineMessage } from '@chihhaocooly/chihhao-package';
 
-export const LINE_MESSAGE_TYPES = ['text', 'image', 'flex', 'json'] as const;
+export const LINE_MESSAGE_TYPES = ['text', 'image', 'flex', 'template', 'imagemap', 'json'] as const;
 
 export type LineMessageType = typeof LINE_MESSAGE_TYPES[number];
+
+export const LINE_MESSAGE_TEMPLATE_KEYS = [
+  'text',
+  'menuText',
+  'image',
+  'flexCard',
+  'flexCarousel',
+  'templateButtons',
+  'templateConfirm',
+  'carouselImage',
+  'imagemap',
+  'customJson',
+] as const;
+
+export type LineMessageTemplateKey = typeof LINE_MESSAGE_TEMPLATE_KEYS[number];
+
+export const LINE_MESSAGE_IMAGE_ASSET_KINDS = ['messageImage', 'imagemap'] as const;
+
+export type LineMessageImageAssetKind = typeof LINE_MESSAGE_IMAGE_ASSET_KINDS[number];
+
+export type LineMessageImageAssetReferenceRole =
+  | 'messageImage'
+  | 'flexImage'
+  | 'carouselImage'
+  | 'imagemap';
+
+export interface LineMessageImageVariantDto {
+  width: number;
+  height: number;
+  storageObjectName: string;
+  publicUrl: string;
+}
+
+export type LineMessageImageVariantsDto = Record<string, LineMessageImageVariantDto>;
+
+export interface LineMessageImageAssetDto {
+  imageAssetKey: string;
+  originalFileName: string;
+  contentType: string;
+  sizeBytes: number;
+  assetKind: LineMessageImageAssetKind;
+  storageBucket: string;
+  storageObjectName: string;
+  publicUrl: string;
+  width: number | null;
+  height: number | null;
+  imagemapBaseUrl: string | null;
+  imagemapBaseSizeWidth: number | null;
+  imagemapBaseSizeHeight: number | null;
+  imageVariants: LineMessageImageVariantsDto | null;
+  createdByUserId: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  deletedAt: string | null;
+}
 
 export interface LineMessageDto {
   lineMessageKey: string;
   title: string;
   type: LineMessageType;
+  templateKey: LineMessageTemplateKey | null;
   keyWords: string[];
   customPayload: unknown;
+  editorPayload: unknown | null;
+  editorPayloadVersion: number;
   summary: string;
   isSendable: boolean;
   createdAt: string | null;
@@ -33,12 +91,29 @@ export interface ListLineMessagesResult {
 export interface SaveLineMessageRequest {
   title?: unknown;
   type?: unknown;
+  templateKey?: unknown;
   keyWords?: unknown;
   customPayload?: unknown;
+  editorPayload?: unknown;
+  editorPayloadVersion?: unknown;
 }
 
 export interface LineMessageFieldError {
-  field: 'title' | 'type' | 'keyWords' | 'customPayload' | 'imageUrl' | 'json';
+  field:
+    | 'title'
+    | 'type'
+    | 'templateKey'
+    | 'keyWords'
+    | 'customPayload'
+    | 'editorPayload'
+    | 'imageUrl'
+    | 'json'
+    | 'file'
+    | 'contentType'
+    | 'sizeBytes'
+    | 'storageBucket'
+    | 'baseUrl'
+    | 'assetKind';
   message: string;
 }
 
@@ -49,8 +124,11 @@ export interface ValidateLineMessageResult {
   normalized?: {
     title: string;
     type: LineMessageType;
+    templateKey: LineMessageTemplateKey | null;
     keyWords: string[];
     customPayload: Record<string, unknown>;
+    editorPayload: Record<string, unknown> | null;
+    editorPayloadVersion: number;
   };
   fieldErrors: LineMessageFieldError[];
 }
@@ -67,6 +145,9 @@ export interface ReplySettingsDto {
 }
 
 export type LineMessageEntity = LineMessage & {
+  templateKey?: LineMessageTemplateKey | null;
+  editorPayload?: Record<string, unknown> | null;
+  editorPayloadVersion?: number;
   createdAt?: Date | string | null;
   updatedAt?: Date | string | null;
 };

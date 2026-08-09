@@ -1,5 +1,6 @@
 import { LineMessage, LineMessageRepository } from '@chihhaocooly/chihhao-package';
 import {
+  LineMessageEntity,
   LineMessageReferenceDto,
   ListLineMessagesOptions,
   ListLineMessagesResult,
@@ -8,7 +9,13 @@ import {
   ValidateLineMessageResult,
 } from './lineMessageTypes';
 import { toLineMessageDto } from './lineMessageMapper';
-import { normalizeKeywords, validateLineMessagePayload } from './lineMessageValidator';
+import {
+  deleteLineMessageImageAssetReferences,
+  hydrateLineMessageEditorMetadata,
+  syncLineMessageImageAssetReferences,
+  updateLineMessageEditorMetadata,
+} from './lineMessagePersistenceHelpers';
+import { isLineMessageTemplateKey, normalizeKeywords, validateLineMessagePayload } from './lineMessageValidator';
 import { getReplySettings, saveReplySettings } from './lineMessageSettingsStore';
 
 const defaultPage = 1;
@@ -20,7 +27,7 @@ export const listLineMessages = async (options: Partial<ListLineMessagesOptions>
   const page = Math.max(Number(options.page ?? defaultPage) || defaultPage, 1);
   const pageSize = Math.min(Math.max(Number(options.pageSize ?? defaultPageSize) || defaultPageSize, 1), 100);
   const search = options.q?.trim().toLowerCase();
-  const allMessages = await repository.findAll();
+  const allMessages = await hydrateLineMessageEditorMetadata(await repository.findAll() as LineMessageEntity[]);
 
   const filteredMessages = allMessages
     .filter((message) => {
@@ -34,7 +41,9 @@ export const listLineMessages = async (options: Partial<ListLineMessagesOptions>
 
       return message.title.toLowerCase().includes(search)
         || normalizeKeywords(message.keyWords).join(' ').toLowerCase().includes(search)
-        || JSON.stringify(message.customPayload).toLowerCase().includes(search);
+        || JSON.stringify(message.customPayload).toLowerCase().includes(search)
+        || JSON.stringify(message.editorPayload ?? {}).toLowerCase().includes(search)
+        || (message.templateKey?.toLowerCase().includes(search) ?? false);
     })
     .sort((left, right) => dateValue(right.updatedAt) - dateValue(left.updatedAt));
 
@@ -51,7 +60,12 @@ export const listLineMessages = async (options: Partial<ListLineMessagesOptions>
 export const getLineMessageByKey = async (lineMessageKey: string) => {
   const repository = new LineMessageRepository();
   const message = await repository.findByLineMessageKey(lineMessageKey);
-  return message ? toLineMessageDto(message) : null;
+  if (!message) {
+    return null;
+  }
+
+  const [hydratedMessage] = await hydrateLineMessageEditorMetadata([message as LineMessageEntity]);
+  return toLineMessageDto(hydratedMessage);
 };
 
 export const validateLineMessage = async (
@@ -83,18 +97,34 @@ export const createLineMessage = async (payload: SaveLineMessageRequest) => {
 
   const repository = new LineMessageRepository();
   const message = new LineMessage();
-  message.title = result.normalized.title;
-  message.type = result.normalized.type;
-  message.keyWords = result.normalized.keyWords;
-  message.customPayload = result.normalized.customPayload;
-  message.createdAt = new Date();
-  message.updatedAt = new Date();
+  const editableMessage = message as LineMessage & LineMessageEntity;
+  editableMessage.title = result.normalized.title;
+  editableMessage.type = result.normalized.type;
+  editableMessage.keyWords = result.normalized.keyWords;
+  editableMessage.customPayload = result.normalized.customPayload;
+  editableMessage.templateKey = result.normalized.templateKey;
+  editableMessage.editorPayload = result.normalized.editorPayload;
+  editableMessage.editorPayloadVersion = result.normalized.editorPayloadVersion;
+  editableMessage.createdAt = new Date();
+  editableMessage.updatedAt = new Date();
 
   const savedMessage = await repository.create(message);
+  await updateLineMessageEditorMetadata(
+    savedMessage.lineMessageKey,
+    result.normalized.templateKey,
+    result.normalized.editorPayload,
+    result.normalized.editorPayloadVersion
+  );
+  await syncLineMessageImageAssetReferences(
+    savedMessage.lineMessageKey,
+    result.normalized.templateKey,
+    result.normalized.editorPayload
+  );
+  const [hydratedMessage] = await hydrateLineMessageEditorMetadata([savedMessage as LineMessageEntity]);
 
   return {
     result,
-    item: toLineMessageDto(savedMessage),
+    item: toLineMessageDto(hydratedMessage),
   };
 };
 
@@ -110,36 +140,76 @@ export const updateLineMessage = async (lineMessageKey: string, payload: SaveLin
     return { result, item: null };
   }
 
-  message.title = result.normalized.title;
-  message.type = result.normalized.type;
-  message.keyWords = result.normalized.keyWords;
-  message.customPayload = result.normalized.customPayload;
-  message.updatedAt = new Date();
+  const editableMessage = message as LineMessage & LineMessageEntity;
+  editableMessage.title = result.normalized.title;
+  editableMessage.type = result.normalized.type;
+  editableMessage.keyWords = result.normalized.keyWords;
+  editableMessage.customPayload = result.normalized.customPayload;
+  editableMessage.templateKey = result.normalized.templateKey;
+  editableMessage.editorPayload = result.normalized.editorPayload;
+  editableMessage.editorPayloadVersion = result.normalized.editorPayloadVersion;
+  editableMessage.updatedAt = new Date();
 
   const savedMessage = await repository.update(message);
+  await updateLineMessageEditorMetadata(
+    savedMessage.lineMessageKey,
+    result.normalized.templateKey,
+    result.normalized.editorPayload,
+    result.normalized.editorPayloadVersion
+  );
+  await syncLineMessageImageAssetReferences(
+    savedMessage.lineMessageKey,
+    result.normalized.templateKey,
+    result.normalized.editorPayload
+  );
+  const [hydratedMessage] = await hydrateLineMessageEditorMetadata([savedMessage as LineMessageEntity]);
 
   return {
     result,
-    item: toLineMessageDto(savedMessage),
+    item: toLineMessageDto(hydratedMessage),
   };
 };
 
 export const copyLineMessage = async (lineMessageKey: string) => {
   const repository = new LineMessageRepository();
-  const source = await repository.findByLineMessageKey(lineMessageKey);
+  const sourceMessage = await repository.findByLineMessageKey(lineMessageKey);
+  const source = sourceMessage
+    ? (await hydrateLineMessageEditorMetadata([sourceMessage as LineMessageEntity]))[0]
+    : null;
   if (!source) {
     return null;
   }
 
+  const sourceTemplateKey = typeof source.templateKey === 'string' && isLineMessageTemplateKey(source.templateKey)
+    ? source.templateKey
+    : null;
   const message = new LineMessage();
-  message.title = `${source.title} 複本`.slice(0, 50);
-  message.type = source.type;
-  message.keyWords = [];
-  message.customPayload = source.customPayload;
-  message.createdAt = new Date();
-  message.updatedAt = new Date();
+  const editableMessage = message as LineMessage & LineMessageEntity;
+  editableMessage.title = `${source.title} 複本`.slice(0, 50);
+  editableMessage.type = source.type;
+  editableMessage.keyWords = [];
+  editableMessage.customPayload = source.customPayload;
+  editableMessage.templateKey = sourceTemplateKey;
+  editableMessage.editorPayload = source.editorPayload ?? null;
+  editableMessage.editorPayloadVersion = Number(source.editorPayloadVersion ?? 1) || 1;
+  editableMessage.createdAt = new Date();
+  editableMessage.updatedAt = new Date();
 
-  return toLineMessageDto(await repository.create(message));
+  const savedMessage = await repository.create(message);
+  await updateLineMessageEditorMetadata(
+    savedMessage.lineMessageKey,
+    sourceTemplateKey,
+    source.editorPayload ?? null,
+    Number(source.editorPayloadVersion ?? 1) || 1
+  );
+  await syncLineMessageImageAssetReferences(
+    savedMessage.lineMessageKey,
+    sourceTemplateKey,
+    source.editorPayload ?? null
+  );
+  const [hydratedMessage] = await hydrateLineMessageEditorMetadata([savedMessage as LineMessageEntity]);
+
+  return toLineMessageDto(hydratedMessage);
 };
 
 export const deleteLineMessage = async (lineMessageKey: string) => {
@@ -154,6 +224,7 @@ export const deleteLineMessage = async (lineMessageKey: string) => {
     return { deleted: false, missing: false, references };
   }
 
+  await deleteLineMessageImageAssetReferences(lineMessageKey);
   await repository.delete(message);
   return { deleted: true, missing: false, references };
 };

@@ -16,14 +16,14 @@ import apiUpdateLineMessage from './apiUpdateLineMessage';
 import apiUpdateReplySettings from './apiUpdateReplySettings';
 import apiUploadLineMessageImageAsset from './apiUploadLineMessageImageAsset';
 import apiValidateLineMessage from './apiValidateLineMessage';
-import { maxLineMessageImageBytes } from '../../functions/lineMessage/lineMessageImageAssetService';
+import { maxLineMessageImagemapImageBytes } from '../../functions/lineMessage/lineMessageImageAssetService';
 
 
 const lineMessageRouter = express.Router();
 const uploadLineMessageImage = multer({
     storage: multer.memoryStorage(),
     limits: {
-        fileSize: maxLineMessageImageBytes,
+        fileSize: maxLineMessageImagemapImageBytes,
         files: 1,
     },
 });
