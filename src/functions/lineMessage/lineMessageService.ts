@@ -97,7 +97,7 @@ export const createLineMessage = async (payload: SaveLineMessageRequest) => {
 
   const repository = new LineMessageRepository();
   const message = new LineMessage();
-  const editableMessage = message as LineMessage & LineMessageEntity;
+  const editableMessage = message as LineMessageEntity;
   editableMessage.title = result.normalized.title;
   editableMessage.type = result.normalized.type;
   editableMessage.keyWords = result.normalized.keyWords;
@@ -140,7 +140,7 @@ export const updateLineMessage = async (lineMessageKey: string, payload: SaveLin
     return { result, item: null };
   }
 
-  const editableMessage = message as LineMessage & LineMessageEntity;
+  const editableMessage = message as LineMessageEntity;
   editableMessage.title = result.normalized.title;
   editableMessage.type = result.normalized.type;
   editableMessage.keyWords = result.normalized.keyWords;
@@ -184,7 +184,7 @@ export const copyLineMessage = async (lineMessageKey: string) => {
     ? source.templateKey
     : null;
   const message = new LineMessage();
-  const editableMessage = message as LineMessage & LineMessageEntity;
+  const editableMessage = message as LineMessageEntity;
   editableMessage.title = `${source.title} 複本`.slice(0, 50);
   editableMessage.type = source.type;
   editableMessage.keyWords = [];

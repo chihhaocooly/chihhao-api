@@ -65,7 +65,7 @@ describe('lineMessageValidator', () => {
     expect(axiosMock.head).toHaveBeenCalledWith('https://example.com/image.png', { timeout: 3000 });
   });
 
-  it('accepts a template message with editor metadata', async () => {
+  it('rejects LINE template as a first-class message type', async () => {
     const result = await validateLineMessagePayload({
       title: '確認訊息',
       type: 'template',
@@ -89,9 +89,9 @@ describe('lineMessageValidator', () => {
       editorPayloadVersion: 1,
     });
 
-    expect(result.isValid).toBe(true);
-    expect(result.normalized?.templateKey).toBe('templateConfirm');
-    expect(result.normalized?.editorPayload).toEqual({ confirmText: '是否繼續？' });
+    expect(result.isValid).toBe(false);
+    expect(result.normalized).toBeUndefined();
+    expect(result.fieldErrors.map((fieldError) => fieldError.field)).toContain('type');
   });
 
   it('accepts a valid imagemap message', async () => {

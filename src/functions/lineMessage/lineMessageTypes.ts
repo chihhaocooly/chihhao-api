@@ -1,18 +1,13 @@
 import { LineMessage } from '@chihhaocooly/chihhao-package';
 
-export const LINE_MESSAGE_TYPES = ['text', 'image', 'flex', 'template', 'imagemap', 'json'] as const;
+export const LINE_MESSAGE_TYPES = ['text', 'image', 'flex', 'imagemap', 'json'] as const;
 
 export type LineMessageType = typeof LINE_MESSAGE_TYPES[number];
 
 export const LINE_MESSAGE_TEMPLATE_KEYS = [
   'text',
-  'menuText',
   'image',
-  'flexCard',
-  'flexCarousel',
-  'templateButtons',
-  'templateConfirm',
-  'carouselImage',
+  'flex',
   'imagemap',
   'customJson',
 ] as const;
@@ -144,7 +139,7 @@ export interface ReplySettingsDto {
   defaultReplyLineMessageKeys: string[];
 }
 
-export type LineMessageEntity = LineMessage & {
+export type LineMessageEntity = Omit<LineMessage, 'templateKey'> & {
   templateKey?: LineMessageTemplateKey | null;
   editorPayload?: Record<string, unknown> | null;
   editorPayloadVersion?: number;

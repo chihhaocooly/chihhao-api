@@ -148,8 +148,6 @@ const validateContent = async (type: LineMessageType, payload: Record<string, un
       return await validateImagePayload(payload);
     case 'flex':
       return validateFlexPayload(payload);
-    case 'template':
-      return validateTemplatePayload(payload);
     case 'imagemap':
       return validateImagemapPayload(payload);
     case 'json':
@@ -202,29 +200,6 @@ const validateFlexPayload = (payload: Record<string, unknown>) => {
 
   if (!isRecord(payload.contents)) {
     errors.push({ field: 'customPayload', message: 'Flex 訊息必須包含 contents' });
-  }
-
-  return {
-    isSendable: errors.length === 0,
-    summary: altText || JSON.stringify(payload).slice(0, 80),
-    errors,
-  };
-};
-
-const validateTemplatePayload = (payload: Record<string, unknown>) => {
-  const errors: LineMessageFieldError[] = [];
-  const altText = typeof payload.altText === 'string' ? payload.altText.trim() : '';
-
-  if (payload.type !== 'template') {
-    errors.push({ field: 'customPayload', message: 'Template 訊息 type 必須為 template' });
-  }
-
-  if (!altText) {
-    errors.push({ field: 'customPayload', message: 'Template 訊息必須包含 altText' });
-  }
-
-  if (!isRecord(payload.template)) {
-    errors.push({ field: 'customPayload', message: 'Template 訊息必須包含 template' });
   }
 
   return {
@@ -319,7 +294,7 @@ export const summarizeLineMessagePayload = (type: string, payload: unknown): str
       : JSON.stringify(normalizedPayload).slice(0, 80);
   }
 
-  if (type === 'template' || type === 'imagemap') {
+  if (type === 'imagemap') {
     return readSummary(normalizedPayload);
   }
 

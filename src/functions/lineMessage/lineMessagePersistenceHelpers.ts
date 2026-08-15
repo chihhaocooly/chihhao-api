@@ -141,7 +141,7 @@ const extractImageAssetReferences = (
 ): ImageAssetReferenceInput[] => {
   const imageAssetKeys = new Set<string>();
   collectImageAssetKeys(editorPayload, imageAssetKeys);
-  const referenceRole = toReferenceRole(templateKey);
+  const referenceRole = toReferenceRole(templateKey, editorPayload);
 
   return Array.from(imageAssetKeys).map((imageAssetKey) => ({
     imageAssetKey,
@@ -172,13 +172,15 @@ const collectImageAssetKeys = (value: unknown, keys: Set<string>) => {
   }
 };
 
-const toReferenceRole = (templateKey: LineMessageTemplateKey | null): LineMessageImageAssetReferenceRole => {
+const toReferenceRole = (
+  templateKey: LineMessageTemplateKey | null,
+  editorPayload: unknown | null,
+): LineMessageImageAssetReferenceRole => {
   switch (templateKey) {
-    case 'flexCard':
-    case 'flexCarousel':
-      return 'flexImage';
-    case 'carouselImage':
-      return 'carouselImage';
+    case 'flex': {
+      const payload = parseEditorPayloadColumn(editorPayload);
+      return payload?.flexPreset === 'imageCarousel' ? 'carouselImage' : 'flexImage';
+    }
     case 'imagemap':
       return 'imagemap';
     default:
