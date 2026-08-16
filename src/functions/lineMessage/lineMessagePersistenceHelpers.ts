@@ -1,12 +1,19 @@
 import { AppDataSource } from '@chihhaocooly/chihhao-package';
-import { randomUUID } from 'crypto';
 import {
   LineMessageEntity,
-  LineMessageImageAssetReferenceRole,
   LineMessageReferenceDto,
   LineMessageTemplateKey,
 } from './lineMessageTypes';
 import { isLineMessageTemplateKey } from './lineMessageValidator';
+import {
+  deleteProjectAssetReferencesForEntity,
+  replaceProjectAssetReferencesForEntity,
+} from '../projectAsset/projectAssetService';
+import {
+  ProjectAssetReferenceInput,
+  ProjectAssetReferenceRole,
+  ProjectAssetUsageProfileKey,
+} from '../projectAsset/projectAssetTypes';
 
 interface EditorMetadataRow {
   lineMessageKey: string;
@@ -18,12 +25,7 @@ interface EditorMetadataRow {
 interface ImageAssetReferenceRow {
   lineMessageKey: string;
   title: string;
-  referenceRole: string;
-}
-
-interface ImageAssetReferenceInput {
-  imageAssetKey: string;
-  referenceRole: LineMessageImageAssetReferenceRole;
+  usageRole: string;
 }
 
 export const hydrateLineMessageEditorMetadata = async <T extends LineMessageEntity>(messages: T[]): Promise<T[]> => {
@@ -79,55 +81,42 @@ export const updateLineMessageEditorMetadata = async (
   }
 };
 
-export const syncLineMessageImageAssetReferences = async (
+export const syncLineMessageProjectAssetReferences = async (
   lineMessageKey: string,
+  title: string,
   templateKey: LineMessageTemplateKey | null,
   editorPayload: unknown | null,
 ) => {
-  const references = extractImageAssetReferences(templateKey, editorPayload);
-
+  const references = extractProjectAssetReferences(lineMessageKey, title, templateKey, editorPayload);
   try {
-    await AppDataSource.query('DELETE FROM line_message_image_asset_reference WHERE lineMessageKey = ?', [lineMessageKey]);
-
-    if (references.length === 0) {
-      return;
-    }
-
-    for (const reference of references) {
-      await AppDataSource.query(
-        `INSERT INTO line_message_image_asset_reference
-          (referenceKey, lineMessageKey, imageAssetKey, referenceRole, createdAt)
-          VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-        [randomUUID(), lineMessageKey, reference.imageAssetKey, reference.referenceRole]
-      );
-    }
+    await replaceProjectAssetReferencesForEntity('lineMessage', lineMessageKey, references);
   } catch {
-    // The reference table is additive; saving the message must not fail before migration.
+    // Saving the message must not fail before the project asset migration is applied.
   }
 };
 
-export const deleteLineMessageImageAssetReferences = async (lineMessageKey: string) => {
+export const deleteLineMessageProjectAssetReferences = async (lineMessageKey: string) => {
   try {
-    await AppDataSource.query('DELETE FROM line_message_image_asset_reference WHERE lineMessageKey = ?', [lineMessageKey]);
+    await deleteProjectAssetReferencesForEntity('lineMessage', lineMessageKey);
   } catch {
-    // Ignore until the DB migration is applied.
+    // Deleting the message should still work in tests or environments before migration.
   }
 };
 
 export const readLineMessageImageAssetReferences = async (imageAssetKey: string): Promise<LineMessageReferenceDto[]> => {
   try {
     const rows = await AppDataSource.query(
-      `SELECT ref.lineMessageKey, ref.referenceRole, msg.title
-       FROM line_message_image_asset_reference ref
-       INNER JOIN line_message msg ON msg.lineMessageKey = ref.lineMessageKey
-       WHERE ref.imageAssetKey = ?
+      `SELECT ref.entityKey AS lineMessageKey, ref.usageRole, ref.entityLabel AS title
+       FROM project_asset_reference ref
+       WHERE ref.assetKey = ?
+        AND ref.entityType = 'lineMessage'
        ORDER BY ref.createdAt DESC`,
       [imageAssetKey]
     ) as ImageAssetReferenceRow[];
 
     return rows.map((row) => ({
       type: 'imageAsset',
-      label: `訊息素材：${row.title}（${formatReferenceRole(row.referenceRole)}）`,
+      label: `訊息管理：${row.title}（${formatReferenceRole(row.usageRole)}）`,
       lineMessageKey: row.lineMessageKey,
     }));
   } catch {
@@ -135,47 +124,57 @@ export const readLineMessageImageAssetReferences = async (imageAssetKey: string)
   }
 };
 
-const extractImageAssetReferences = (
+const extractProjectAssetReferences = (
+  lineMessageKey: string,
+  title: string,
   templateKey: LineMessageTemplateKey | null,
   editorPayload: unknown | null,
-): ImageAssetReferenceInput[] => {
-  const imageAssetKeys = new Set<string>();
-  collectImageAssetKeys(editorPayload, imageAssetKeys);
+): ProjectAssetReferenceInput[] => {
+  const assetKeys = new Set<string>();
+  collectProjectAssetKeys(editorPayload, assetKeys);
   const referenceRole = toReferenceRole(templateKey, editorPayload);
+  const usageProfileKey = toUsageProfileKey(referenceRole);
 
-  return Array.from(imageAssetKeys).map((imageAssetKey) => ({
-    imageAssetKey,
-    referenceRole,
+  return Array.from(assetKeys).map((assetKey) => ({
+    assetKey,
+    ownerModule: 'messageManagement',
+    entityType: 'lineMessage',
+    entityKey: lineMessageKey,
+    entityLabel: title,
+    usageProfileKey,
+    usageRole: referenceRole,
+    usagePath: '$.editorPayload',
+    isBlockingDelete: true,
   }));
 };
 
-const collectImageAssetKeys = (value: unknown, keys: Set<string>) => {
+const collectProjectAssetKeys = (value: unknown, keys: Set<string>) => {
   if (!value || typeof value !== 'object') {
     return;
   }
 
   if (Array.isArray(value)) {
     for (const item of value) {
-      collectImageAssetKeys(item, keys);
+      collectProjectAssetKeys(item, keys);
     }
     return;
   }
 
   const record = value as Record<string, unknown>;
   for (const [key, item] of Object.entries(record)) {
-    if ((key === 'imageAssetKey' || key === 'imagemapImageAssetKey') && typeof item === 'string' && item.trim()) {
+    if (key === 'assetKey' && typeof item === 'string' && item.trim()) {
       keys.add(item.trim());
       continue;
     }
 
-    collectImageAssetKeys(item, keys);
+    collectProjectAssetKeys(item, keys);
   }
 };
 
 const toReferenceRole = (
   templateKey: LineMessageTemplateKey | null,
   editorPayload: unknown | null,
-): LineMessageImageAssetReferenceRole => {
+): ProjectAssetReferenceRole => {
   switch (templateKey) {
     case 'flex': {
       const payload = parseEditorPayloadColumn(editorPayload);
@@ -185,6 +184,19 @@ const toReferenceRole = (
       return 'imagemap';
     default:
       return 'messageImage';
+  }
+};
+
+const toUsageProfileKey = (role: ProjectAssetReferenceRole): ProjectAssetUsageProfileKey => {
+  switch (role) {
+    case 'flexImage':
+      return 'messageManagement.flexCardHero';
+    case 'carouselImage':
+      return 'messageManagement.imageCarousel';
+    case 'imagemap':
+      return 'messageManagement.imagemap';
+    default:
+      return 'messageManagement.image';
   }
 };
 

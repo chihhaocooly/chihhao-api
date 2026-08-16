@@ -10,13 +10,16 @@ import {
 } from './lineMessageTypes';
 import { toLineMessageDto } from './lineMessageMapper';
 import {
-  deleteLineMessageImageAssetReferences,
+  deleteLineMessageProjectAssetReferences,
   hydrateLineMessageEditorMetadata,
-  syncLineMessageImageAssetReferences,
+  syncLineMessageProjectAssetReferences,
   updateLineMessageEditorMetadata,
 } from './lineMessagePersistenceHelpers';
 import { isLineMessageTemplateKey, normalizeKeywords, validateLineMessagePayload } from './lineMessageValidator';
 import { getReplySettings, saveReplySettings } from './lineMessageSettingsStore';
+import { readProjectAsset } from '../projectAsset/projectAssetService';
+import { evaluateProjectAssetEligibility } from '../projectAsset/projectAssetUsageProfiles';
+import { ProjectAssetUsageProfileKey } from '../projectAsset/projectAssetTypes';
 
 const defaultPage = 1;
 const defaultPageSize = 20;
@@ -84,6 +87,13 @@ export const validateLineMessage = async (
       result.isValid = false;
       result.isSendable = false;
     }
+
+    const assetErrors = await validateProjectAssetReferences(result.normalized.templateKey, result.normalized.editorPayload);
+    if (assetErrors.length > 0) {
+      result.fieldErrors.push(...assetErrors);
+      result.isValid = false;
+      result.isSendable = false;
+    }
   }
 
   return result;
@@ -91,7 +101,7 @@ export const validateLineMessage = async (
 
 export const createLineMessage = async (payload: SaveLineMessageRequest) => {
   const result = await validateLineMessage(payload);
-  if (!result.normalized) {
+  if (!result.normalized || !result.isValid) {
     return { result, item: null };
   }
 
@@ -115,8 +125,9 @@ export const createLineMessage = async (payload: SaveLineMessageRequest) => {
     result.normalized.editorPayload,
     result.normalized.editorPayloadVersion
   );
-  await syncLineMessageImageAssetReferences(
+  await syncLineMessageProjectAssetReferences(
     savedMessage.lineMessageKey,
+    result.normalized.title,
     result.normalized.templateKey,
     result.normalized.editorPayload
   );
@@ -136,7 +147,7 @@ export const updateLineMessage = async (lineMessageKey: string, payload: SaveLin
   }
 
   const result = await validateLineMessage(payload, lineMessageKey);
-  if (!result.normalized) {
+  if (!result.normalized || !result.isValid) {
     return { result, item: null };
   }
 
@@ -157,8 +168,9 @@ export const updateLineMessage = async (lineMessageKey: string, payload: SaveLin
     result.normalized.editorPayload,
     result.normalized.editorPayloadVersion
   );
-  await syncLineMessageImageAssetReferences(
+  await syncLineMessageProjectAssetReferences(
     savedMessage.lineMessageKey,
+    result.normalized.title,
     result.normalized.templateKey,
     result.normalized.editorPayload
   );
@@ -202,8 +214,9 @@ export const copyLineMessage = async (lineMessageKey: string) => {
     source.editorPayload ?? null,
     Number(source.editorPayloadVersion ?? 1) || 1
   );
-  await syncLineMessageImageAssetReferences(
+  await syncLineMessageProjectAssetReferences(
     savedMessage.lineMessageKey,
+    editableMessage.title,
     sourceTemplateKey,
     source.editorPayload ?? null
   );
@@ -224,7 +237,7 @@ export const deleteLineMessage = async (lineMessageKey: string) => {
     return { deleted: false, missing: false, references };
   }
 
-  await deleteLineMessageImageAssetReferences(lineMessageKey);
+  await deleteLineMessageProjectAssetReferences(lineMessageKey);
   await repository.delete(message);
   return { deleted: true, missing: false, references };
 };
@@ -296,6 +309,70 @@ const findKeywordConflict = async (keywords: string[], excludingLineMessageKey?:
   }
 
   return null;
+};
+
+const validateProjectAssetReferences = async (
+  templateKey: string | null,
+  editorPayload: Record<string, unknown> | null,
+) => {
+  const assetKeys = new Set<string>();
+  collectAssetKeys(editorPayload, assetKeys);
+  const usageProfileKey = toUsageProfileKey(templateKey, editorPayload);
+  const errors: ValidateLineMessageResult['fieldErrors'] = [];
+
+  for (const assetKey of assetKeys) {
+    const asset = await readProjectAsset(assetKey);
+    if (!asset) {
+      errors.push({ field: 'assetKey', message: `素材不存在或已刪除：${assetKey}` });
+      continue;
+    }
+
+    const eligibility = evaluateProjectAssetEligibility(asset, usageProfileKey);
+    if (!eligibility.isEligible) {
+      errors.push({ field: 'assetKey', message: `素材「${asset.displayName}」不符合用途：${eligibility.reasons.join('、')}` });
+    }
+  }
+
+  return errors;
+};
+
+const collectAssetKeys = (value: unknown, keys: Set<string>) => {
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectAssetKeys(item, keys);
+    }
+    return;
+  }
+
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (key === 'assetKey' && typeof item === 'string' && item.trim()) {
+      keys.add(item.trim());
+      continue;
+    }
+
+    collectAssetKeys(item, keys);
+  }
+};
+
+const toUsageProfileKey = (
+  templateKey: string | null,
+  editorPayload: Record<string, unknown> | null,
+): ProjectAssetUsageProfileKey => {
+  if (templateKey === 'imagemap') {
+    return 'messageManagement.imagemap';
+  }
+
+  if (templateKey === 'flex') {
+    return editorPayload?.flexPreset === 'imageCarousel'
+      ? 'messageManagement.imageCarousel'
+      : 'messageManagement.flexCardHero';
+  }
+
+  return 'messageManagement.image';
 };
 
 const dateValue = (value: Date | string | null | undefined): number => {

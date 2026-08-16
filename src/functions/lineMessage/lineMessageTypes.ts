@@ -108,7 +108,8 @@ export interface LineMessageFieldError {
     | 'sizeBytes'
     | 'storageBucket'
     | 'baseUrl'
-    | 'assetKind';
+    | 'assetKind'
+    | 'assetKey';
   message: string;
 }
 
