@@ -78,8 +78,15 @@ export class AxiosLinePlatformClient implements LinePlatformClient {
   private toLineError(error: unknown, fallbackMessage: string): MyError {
     if (this.isAxiosError(error)) {
       const status = error.response?.status;
+      const lineMessage = this.getLineErrorMessage(error.response?.data);
+
+      console.error("LINE Platform API error", {
+        status,
+        response: error.response?.data,
+      });
+
       if (status === 400) {
-        return new MyError(400, fallbackMessage);
+        return new MyError(400, this.buildLineErrorMessage(fallbackMessage, lineMessage));
       }
 
       if (status === 401) {
@@ -88,6 +95,35 @@ export class AxiosLinePlatformClient implements LinePlatformClient {
     }
 
     return new MyError(502, fallbackMessage);
+  }
+
+  private buildLineErrorMessage(fallbackMessage: string, lineMessage: string | null): string {
+    if (!lineMessage) {
+      return fallbackMessage;
+    }
+
+    return `${fallbackMessage}：${lineMessage}`;
+  }
+
+  private getLineErrorMessage(data: unknown): string | null {
+    if (!data || typeof data !== "object") {
+      return null;
+    }
+
+    const record = data as Record<string, unknown>;
+    if (typeof record.message === "string" && record.message.trim()) {
+      return record.message.trim();
+    }
+
+    if (typeof record.error_description === "string" && record.error_description.trim()) {
+      return record.error_description.trim();
+    }
+
+    if (typeof record.error === "string" && record.error.trim()) {
+      return record.error.trim();
+    }
+
+    return null;
   }
 
   private isAxiosError(error: unknown): error is AxiosError {
