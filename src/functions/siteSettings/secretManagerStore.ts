@@ -4,16 +4,14 @@ import { SecretStore } from "./siteSettingsTypes";
 
 export class SecretManagerStore implements SecretStore {
   private readonly client = new SecretManagerServiceClient();
-  private readonly projectId = process.env.SITE_SETTINGS_SECRET_PROJECT_ID
-    || process.env.GOOGLE_CLOUD_PROJECT
-    || process.env.GCP_PROJECT;
 
   async writeSecret(secretId: string, value: string): Promise<string> {
-    if (!this.projectId) {
+    const projectId = await this.getProjectId();
+    if (!projectId) {
       throw new MyError(500, "Secret Manager project is not configured");
     }
 
-    const parent = `projects/${this.projectId}`;
+    const parent = `projects/${projectId}`;
     const secretName = `${parent}/secrets/${secretId}`;
     await this.ensureSecret(parent, secretId);
     await this.client.addSecretVersion({
@@ -64,5 +62,12 @@ export class SecretManagerStore implements SecretStore {
       && error !== null
       && "code" in error
       && (error as { code?: number }).code === 5;
+  }
+
+  private async getProjectId(): Promise<string | undefined> {
+    return process.env.SITE_SETTINGS_SECRET_PROJECT_ID
+      || process.env.GOOGLE_CLOUD_PROJECT
+      || process.env.GCP_PROJECT
+      || await this.client.getProjectId();
   }
 }
