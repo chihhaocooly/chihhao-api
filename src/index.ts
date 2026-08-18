@@ -14,6 +14,7 @@ import { apiGetPartInfo } from './functions/api-get-park-info';
 import authRouter from './controller/auth';
 import adminUsersRouter from './controller/adminUsers';
 import projectAssetsRouter from './controller/projectAssets';
+import siteSettingsRouter from './controller/siteSettings';
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -56,6 +57,7 @@ const port = process.env.PORT || 8080;
     app.use(auth);
     app.use('/auth', authRouter);
     app.use('/admin', adminUsersRouter);
+    app.use('/admin/site-settings', siteSettingsRouter);
     app.use('/assets', projectAssetsRouter);
     app.use('/lineMessage', lineMessageRouter);
 

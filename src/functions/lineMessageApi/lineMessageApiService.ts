@@ -1,4 +1,5 @@
 import { Client } from "@line/bot-sdk";
+import { SiteLineSettingsService } from "../siteSettings";
 
 export class LineMessageApiService {
     constructor() {
@@ -6,9 +7,10 @@ export class LineMessageApiService {
 
     static async SetDefaultRichmenu(lineRichmenuId: string) {
         // 這裡實作設定預設richmenu的邏輯
+        const channelAccessToken = await new SiteLineSettingsService().getMessageApiChannelAccessToken();
 
         const client = new Client({
-            channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN as string,
+            channelAccessToken,
             channelSecret: process.env.LINE_CHANNEL_SECRET
         });
 
