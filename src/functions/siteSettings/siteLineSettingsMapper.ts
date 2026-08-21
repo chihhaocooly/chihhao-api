@@ -13,6 +13,8 @@ export const toSiteLineSettingsDto = (setting: SiteLineSetting | null): SiteLine
   lineLoginChannelSecretMask: setting?.lineLoginChannelSecretMask ?? null,
   hasMessageApiChannelAccessToken: !!setting?.messageApiChannelAccessTokenSecretName,
   messageApiChannelAccessTokenMask: setting?.messageApiChannelAccessTokenMask ?? null,
+  hasMessageApiChannelSecret: !!setting?.messageApiChannelSecretSecretName,
+  messageApiChannelSecretMask: setting?.messageApiChannelSecretMask ?? null,
   botBasicId: setting?.botBasicId ?? null,
   updatedByUserId: setting?.updatedByUserId ?? null,
   createdAt: toIsoString(setting?.createdAt),

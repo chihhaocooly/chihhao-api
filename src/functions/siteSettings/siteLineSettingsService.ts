@@ -22,6 +22,7 @@ import { LinePlatformClient, SecretStore } from "./siteSettingsTypes";
 
 const LINE_LOGIN_CHANNEL_SECRET_ID = "chihhao-line-login-channel-secret";
 const MESSAGE_API_ACCESS_TOKEN_SECRET_ID = "chihhao-message-api-channel-access-token";
+const MESSAGE_API_CHANNEL_SECRET_ID = "chihhao-message-api-channel-secret";
 
 interface UpdateSiteLiffAppResponse {
   item: SiteLiffAppDto;
@@ -75,6 +76,12 @@ export class SiteLineSettingsService {
     if (messageApiToken) {
       setting.messageApiChannelAccessTokenSecretName = await this.secretStore.writeSecret(MESSAGE_API_ACCESS_TOKEN_SECRET_ID, messageApiToken);
       setting.messageApiChannelAccessTokenMask = maskSecret(messageApiToken);
+    }
+
+    const messageApiSecret = normalizeSecret(payload.messageApiChannelSecret);
+    if (messageApiSecret) {
+      setting.messageApiChannelSecretSecretName = await this.secretStore.writeSecret(MESSAGE_API_CHANNEL_SECRET_ID, messageApiSecret);
+      setting.messageApiChannelSecretMask = maskSecret(messageApiSecret);
     }
 
     setting.updatedByUserId = updatedByUserId;
@@ -194,6 +201,20 @@ export class SiteLineSettingsService {
     }
 
     throw new MyError(400, "Messaging API channel access token 尚未設定");
+  }
+
+  async getMessageApiChannelSecret(): Promise<string> {
+    const setting = await new SiteLineSettingRepository().findCurrent();
+    if (setting?.messageApiChannelSecretSecretName) {
+      return this.secretStore.readSecret(setting.messageApiChannelSecretSecretName);
+    }
+
+    const fallbackSecret = process.env.LINE_CHANNEL_SECRET;
+    if (fallbackSecret) {
+      return fallbackSecret;
+    }
+
+    throw new MyError(400, "Messaging API channel secret 尚未設定");
   }
 
   private async getLineLoginCredentials(): Promise<{ channelId: string; channelSecret: string }> {

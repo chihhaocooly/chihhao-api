@@ -15,10 +15,15 @@ import authRouter from './controller/auth';
 import adminUsersRouter from './controller/adminUsers';
 import projectAssetsRouter from './controller/projectAssets';
 import siteSettingsRouter from './controller/siteSettings';
+import lineMembersRouter from './controller/lineMembers';
 
 const app = express();
 app.use(cors({ origin: true }));
-app.use(express.json());
+app.use(express.json({
+  verify: (req, _res, buf) => {
+    (req as express.Request).rawBody = Buffer.from(buf);
+  },
+}));
 app.use(
   express.urlencoded({
     extended: true,
@@ -59,6 +64,7 @@ const port = process.env.PORT || 8080;
     app.use('/admin', adminUsersRouter);
     app.use('/admin/site-settings', siteSettingsRouter);
     app.use('/assets', projectAssetsRouter);
+    app.use('/line-members', lineMembersRouter);
     app.use('/lineMessage', lineMessageRouter);
 
     app.use('/richmenu', richmenuRouter);

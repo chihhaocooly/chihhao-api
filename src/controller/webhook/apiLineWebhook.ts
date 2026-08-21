@@ -1,5 +1,9 @@
 import { LineWebhook } from '@chihhaocooly/chihhao-package';
+import { Client, validateSignature, WebhookRequestBody } from '@line/bot-sdk';
 import { Request, Response } from 'express';
+import { MyError } from '../../@types/my-error';
+import { LineMemberService } from '../../functions/lineMembers';
+import { SiteLineSettingsService } from '../../functions/siteSettings';
 
 let _lineWebhook: LineWebhook | null = null;
 let _initPromise: Promise<void> | null = null;
@@ -12,7 +16,9 @@ async function getInstance(): Promise<LineWebhook> {
     if (!_initPromise) {
       // 如果沒有初始化，就建立初始化 Promise
       _initPromise = (async () => {
-        _lineWebhook = new LineWebhook();
+        _lineWebhook = new LineWebhook({
+          getLineClient: createLineClient,
+        });
         await _lineWebhook.init();
       })();
     }
@@ -22,14 +28,44 @@ async function getInstance(): Promise<LineWebhook> {
   return _lineWebhook!;
 }
 
+async function createLineClient(): Promise<Client> {
+  const siteLineSettingsService = new SiteLineSettingsService();
+  const [channelAccessToken, channelSecret] = await Promise.all([
+    siteLineSettingsService.getMessageApiChannelAccessToken(),
+    siteLineSettingsService.getMessageApiChannelSecret(),
+  ]);
+
+  return new Client({
+    channelAccessToken,
+    channelSecret,
+  });
+}
+
+async function verifyLineSignature(req: Request): Promise<void> {
+  const signature = Array.isArray(req.headers['x-line-signature'])
+    ? req.headers['x-line-signature'][0]
+    : req.headers['x-line-signature'];
+
+  if (!signature || !req.rawBody) {
+    throw new MyError(401, 'Invalid LINE signature');
+  }
+
+  const channelSecret = await new SiteLineSettingsService().getMessageApiChannelSecret();
+  if (!validateSignature(req.rawBody.toString('utf8'), channelSecret, signature)) {
+    throw new MyError(401, 'Invalid LINE signature');
+  }
+}
+
 /**
  * Line webhook 處理函式
  * @param req
  * @param res
  */
 export const apiLineWebhook = async (req: Request, res: Response) => {
-  console.log('🚀 headers =>', JSON.stringify(req.headers));
-  console.log('🚀 path =>', req.path, ' body =>', JSON.stringify(req.body));
+  await verifyLineSignature(req);
+  console.log('🚀 path =>', req.path, ' events =>', JSON.stringify((req.body as WebhookRequestBody).events?.map((event) => event.type) ?? []));
+  const lineClient = await createLineClient();
+  await new LineMemberService(undefined, lineClient).ingestWebhook(req.body as WebhookRequestBody);
   const lineWebhook = await getInstance();
   return lineWebhook.lineWebhookOnRequest(req, res);
 };

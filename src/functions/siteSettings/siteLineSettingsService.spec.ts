@@ -65,6 +65,8 @@ describe("SiteLineSettingsService", () => {
     lineLoginChannelSecretMask: "secr...cret",
     messageApiChannelAccessTokenSecretName: "projects/p/secrets/token",
     messageApiChannelAccessTokenMask: "toke...oken",
+    messageApiChannelSecretSecretName: "projects/p/secrets/message-secret",
+    messageApiChannelSecretMask: "mess...cret",
     botBasicId: "@bot",
     updatedByUserId: "user-1",
     createdAt: new Date("2026-08-18T00:00:00.000Z"),
@@ -107,16 +109,18 @@ describe("SiteLineSettingsService", () => {
   it("updates secrets through the secret store and does not return plain secret values", async () => {
     secretStore.writeSecret
       .mockResolvedValueOnce("projects/p/secrets/login")
-      .mockResolvedValueOnce("projects/p/secrets/token");
+      .mockResolvedValueOnce("projects/p/secrets/token")
+      .mockResolvedValueOnce("projects/p/secrets/message-secret");
 
     const result = await new SiteLineSettingsService(secretStore, lineClient).updateSettings({
       lineLoginChannelId: " login-channel-id ",
       lineLoginChannelSecret: "line-login-secret",
       messageApiChannelAccessToken: "message-api-token",
+      messageApiChannelSecret: "message-api-secret",
       botBasicId: " @bot ",
     }, "admin-user");
 
-    expect(secretStore.writeSecret).toHaveBeenCalledTimes(2);
+    expect(secretStore.writeSecret).toHaveBeenCalledTimes(3);
     expect(saveSetting).toHaveBeenCalledWith(expect.objectContaining({
       lineLoginChannelId: "login-channel-id",
       botBasicId: "@bot",
@@ -124,8 +128,10 @@ describe("SiteLineSettingsService", () => {
     }));
     expect(JSON.stringify(result)).not.toContain("line-login-secret");
     expect(JSON.stringify(result)).not.toContain("message-api-token");
+    expect(JSON.stringify(result)).not.toContain("message-api-secret");
     expect(result.settings.hasLineLoginChannelSecret).toBe(true);
     expect(result.settings.hasMessageApiChannelAccessToken).toBe(true);
+    expect(result.settings.hasMessageApiChannelSecret).toBe(true);
   });
 
   it("rejects LIFF endpoint URLs that are not https", async () => {
