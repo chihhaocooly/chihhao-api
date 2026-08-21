@@ -40,7 +40,23 @@ describe("SiteLineSettingsService", () => {
   const lineClient: jest.Mocked<LinePlatformClient> = {
     verifyMessagingApiToken: jest.fn(),
     createLiffApp: jest.fn(),
+    updateLiffApp: jest.fn(),
+    deleteLiffApp: jest.fn(),
     issueStatelessChannelAccessToken: jest.fn(),
+  };
+  const existingLiffApp = {
+    id: "site-liff-app-id",
+    liffId: "1234567890-AbCdEf",
+    description: "會員中心",
+    endpointUrl: "https://example.com/liff",
+    viewType: "full",
+    scope: ["openid", "profile"],
+    botPrompt: "normal",
+    moduleMode: false,
+    qrCode: false,
+    createdByUserId: "admin-user",
+    createdAt: new Date("2026-08-18T00:00:00.000Z"),
+    updatedAt: new Date("2026-08-18T01:00:00.000Z"),
   };
   const setting = {
     settingKey: "default",
@@ -65,6 +81,12 @@ describe("SiteLineSettingsService", () => {
     createdAt: setting.createdAt,
     updatedAt: setting.updatedAt,
   }));
+  const findLiffAppById = jest.fn(async () => ({ ...existingLiffApp }));
+  const saveLiffApp = jest.fn(async (app) => ({
+    ...app,
+    updatedAt: setting.updatedAt,
+  }));
+  const deleteLiffAppById = jest.fn(async () => ({ affected: 1 }));
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -76,6 +98,9 @@ describe("SiteLineSettingsService", () => {
     SiteLiffAppRepositoryMock.mockImplementation(() => ({
       findAll: jest.fn().mockResolvedValue([]),
       create: createLiffApp,
+      findById: findLiffAppById,
+      save: saveLiffApp,
+      deleteById: deleteLiffAppById,
     } as unknown as SiteLiffAppRepository));
   });
 
@@ -147,5 +172,68 @@ describe("SiteLineSettingsService", () => {
       createdByUserId: "admin-user",
     }));
     expect(result.item.liffId).toBe("1234567890-AbCdEf");
+  });
+
+  it("updates a LIFF app in LINE before saving local metadata", async () => {
+    secretStore.readSecret.mockResolvedValue("line-login-secret");
+    lineClient.issueStatelessChannelAccessToken.mockResolvedValue("stateless-token");
+    lineClient.updateLiffApp.mockResolvedValue();
+
+    const result = await new SiteLineSettingsService(secretStore, lineClient).updateLiffApp("site-liff-app-id", {
+      description: "會員資料",
+      endpointUrl: "https://example.com/member",
+      viewType: "tall",
+      scope: ["openid", "profile"],
+      botPrompt: "none",
+      moduleMode: true,
+      qrCode: true,
+    });
+
+    expect(lineClient.updateLiffApp).toHaveBeenCalledWith("stateless-token", "1234567890-AbCdEf", expect.objectContaining({
+      description: "會員資料",
+      view: {
+        type: "tall",
+        url: "https://example.com/member",
+        moduleMode: true,
+      },
+      features: {
+        qrCode: true,
+      },
+    }));
+    expect(saveLiffApp).toHaveBeenCalledWith(expect.objectContaining({
+      description: "會員資料",
+      endpointUrl: "https://example.com/member",
+      viewType: "tall",
+      botPrompt: "none",
+      moduleMode: true,
+      qrCode: true,
+    }));
+    expect(result.item.description).toBe("會員資料");
+  });
+
+  it("requires matching LIFF ID before deleting a LIFF app", async () => {
+    await expect(new SiteLineSettingsService(secretStore, lineClient).deleteLiffApp(
+      "site-liff-app-id",
+      "wrong-liff-id",
+    )).rejects.toThrow("請輸入完整 LIFF ID 以確認刪除");
+
+    expect(lineClient.issueStatelessChannelAccessToken).not.toHaveBeenCalled();
+    expect(lineClient.deleteLiffApp).not.toHaveBeenCalled();
+    expect(deleteLiffAppById).not.toHaveBeenCalled();
+  });
+
+  it("deletes a LIFF app from LINE before deleting local metadata", async () => {
+    secretStore.readSecret.mockResolvedValue("line-login-secret");
+    lineClient.issueStatelessChannelAccessToken.mockResolvedValue("stateless-token");
+    lineClient.deleteLiffApp.mockResolvedValue();
+
+    const result = await new SiteLineSettingsService(secretStore, lineClient).deleteLiffApp(
+      "site-liff-app-id",
+      "1234567890-AbCdEf",
+    );
+
+    expect(lineClient.deleteLiffApp).toHaveBeenCalledWith("stateless-token", "1234567890-AbCdEf");
+    expect(deleteLiffAppById).toHaveBeenCalledWith("site-liff-app-id");
+    expect(result.deleted).toBe(true);
   });
 });

@@ -6,6 +6,8 @@ export interface SecretStore {
 export interface LinePlatformClient {
   verifyMessagingApiToken(channelAccessToken: string): Promise<LineTokenVerifyResult>;
   createLiffApp(channelAccessToken: string, payload: LineCreateLiffAppPayload): Promise<LineCreateLiffAppResult>;
+  updateLiffApp(channelAccessToken: string, liffId: string, payload: LineCreateLiffAppPayload): Promise<void>;
+  deleteLiffApp(channelAccessToken: string, liffId: string): Promise<void>;
   issueStatelessChannelAccessToken(channelId: string, channelSecret: string): Promise<string>;
 }
 

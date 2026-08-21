@@ -75,6 +75,31 @@ export class AxiosLinePlatformClient implements LinePlatformClient {
     }
   }
 
+  async updateLiffApp(channelAccessToken: string, liffId: string, payload: LineCreateLiffAppPayload): Promise<void> {
+    try {
+      await axios.put(`https://api.line.me/liff/v1/apps/${encodeURIComponent(liffId)}`, payload, {
+        headers: {
+          Authorization: `Bearer ${channelAccessToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+    } catch (error) {
+      throw this.toLineError(error, "LIFF app 更新失敗");
+    }
+  }
+
+  async deleteLiffApp(channelAccessToken: string, liffId: string): Promise<void> {
+    try {
+      await axios.delete(`https://api.line.me/liff/v1/apps/${encodeURIComponent(liffId)}`, {
+        headers: {
+          Authorization: `Bearer ${channelAccessToken}`,
+        },
+      });
+    } catch (error) {
+      throw this.toLineError(error, "LIFF app 刪除失敗");
+    }
+  }
+
   private toLineError(error: unknown, fallbackMessage: string): MyError {
     if (this.isAxiosError(error)) {
       const status = error.response?.status;

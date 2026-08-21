@@ -4,6 +4,7 @@ import {
   GetSiteLineSettingsResponse,
   SiteLiffApp,
   SiteLiffAppRepository,
+  SiteLiffAppDto,
   SiteLiffScope,
   SiteLineSettingRepository,
   siteLiffBotPrompts,
@@ -21,6 +22,20 @@ import { LinePlatformClient, SecretStore } from "./siteSettingsTypes";
 
 const LINE_LOGIN_CHANNEL_SECRET_ID = "chihhao-line-login-channel-secret";
 const MESSAGE_API_ACCESS_TOKEN_SECRET_ID = "chihhao-message-api-channel-access-token";
+
+interface UpdateSiteLiffAppResponse {
+  item: SiteLiffAppDto;
+}
+
+interface DeleteSiteLiffAppResponse {
+  deleted: true;
+}
+
+interface SiteLiffAppRepositoryWithMutations {
+  findById(id: string): Promise<SiteLiffApp | null>;
+  save(siteLiffApp: SiteLiffApp): Promise<SiteLiffApp>;
+  deleteById(id: string): Promise<unknown>;
+}
 
 export class SiteLineSettingsService {
   constructor(
@@ -91,19 +106,7 @@ export class SiteLineSettingsService {
       lineLoginCredentials.channelSecret,
     );
 
-    const result = await this.lineClient.createLiffApp(channelAccessToken, {
-      view: {
-        type: request.viewType,
-        url: request.endpointUrl,
-        moduleMode: request.moduleMode,
-      },
-      description: request.description,
-      features: {
-        qrCode: request.qrCode,
-      },
-      scope: request.scope,
-      botPrompt: request.botPrompt,
-    });
+    const result = await this.lineClient.createLiffApp(channelAccessToken, buildLineLiffPayload(request));
 
     const app = new SiteLiffApp();
     app.liffId = result.liffId;
@@ -120,6 +123,62 @@ export class SiteLineSettingsService {
 
     return {
       item: toSiteLiffAppDto(savedApp),
+    };
+  }
+
+  async updateLiffApp(id: string, payload: Partial<CreateSiteLiffAppRequest>): Promise<UpdateSiteLiffAppResponse> {
+    const repository = this.getLiffAppRepository();
+    const app = await repository.findById(id);
+    if (!app) {
+      throw new MyError(404, "LIFF app 不存在");
+    }
+
+    const request = validateCreateLiffAppRequest(payload);
+    const lineLoginCredentials = await this.getLineLoginCredentials();
+    const channelAccessToken = await this.lineClient.issueStatelessChannelAccessToken(
+      lineLoginCredentials.channelId,
+      lineLoginCredentials.channelSecret,
+    );
+
+    await this.lineClient.updateLiffApp(channelAccessToken, app.liffId, buildLineLiffPayload(request));
+
+    app.description = request.description;
+    app.endpointUrl = request.endpointUrl;
+    app.viewType = request.viewType;
+    app.scope = request.scope;
+    app.botPrompt = request.botPrompt;
+    app.moduleMode = request.moduleMode;
+    app.qrCode = request.qrCode;
+
+    const savedApp = await repository.save(app);
+
+    return {
+      item: toSiteLiffAppDto(savedApp),
+    };
+  }
+
+  async deleteLiffApp(id: string, confirmLiffId: string | undefined): Promise<DeleteSiteLiffAppResponse> {
+    const repository = this.getLiffAppRepository();
+    const app = await repository.findById(id);
+    if (!app) {
+      throw new MyError(404, "LIFF app 不存在");
+    }
+
+    if (!confirmLiffId || confirmLiffId !== app.liffId) {
+      throw new MyError(400, "請輸入完整 LIFF ID 以確認刪除");
+    }
+
+    const lineLoginCredentials = await this.getLineLoginCredentials();
+    const channelAccessToken = await this.lineClient.issueStatelessChannelAccessToken(
+      lineLoginCredentials.channelId,
+      lineLoginCredentials.channelSecret,
+    );
+
+    await this.lineClient.deleteLiffApp(channelAccessToken, app.liffId);
+    await repository.deleteById(id);
+
+    return {
+      deleted: true,
     };
   }
 
@@ -149,6 +208,10 @@ export class SiteLineSettingsService {
       channelId,
       channelSecret: await this.secretStore.readSecret(setting.lineLoginChannelSecretSecretName),
     };
+  }
+
+  private getLiffAppRepository(): SiteLiffAppRepositoryWithMutations {
+    return new SiteLiffAppRepository() as unknown as SiteLiffAppRepositoryWithMutations;
   }
 }
 
@@ -208,6 +271,20 @@ const validateCreateLiffAppRequest = (payload: Partial<CreateSiteLiffAppRequest>
     qrCode: payload.qrCode ?? false,
   };
 };
+
+const buildLineLiffPayload = (request: CreateSiteLiffAppRequest) => ({
+  view: {
+    type: request.viewType,
+    url: request.endpointUrl,
+    moduleMode: request.moduleMode,
+  },
+  description: request.description,
+  features: {
+    qrCode: request.qrCode,
+  },
+  scope: request.scope,
+  botPrompt: request.botPrompt,
+});
 
 const isSiteLiffScope = (value: string): value is SiteLiffScope => {
   return siteLiffScopes.includes(value as SiteLiffScope);
