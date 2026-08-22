@@ -962,7 +962,11 @@ const normalizeDateValue = (value: unknown): string | null => {
   }
 
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toISOString().slice(0, 19).replace('T', ' ');
 };
 
 const normalizeRecord = (value: unknown): Record<string, unknown> | null => {
