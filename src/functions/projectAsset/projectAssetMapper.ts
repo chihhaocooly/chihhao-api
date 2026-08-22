@@ -178,7 +178,7 @@ const toIsoString = (value: Date | string | null | undefined): string | null => 
 };
 
 const normalizeOwnerModule = (value: string): ProjectAssetOwnerModule => {
-  if (value === 'lineRichMenu' || value === 'articleManagement') {
+  if (value === 'lineRichMenu' || value === 'articleManagement' || value === 'surveyManagement') {
     return value;
   }
 
