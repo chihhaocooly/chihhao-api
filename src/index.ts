@@ -13,9 +13,11 @@ import axios from 'axios';
 import { apiGetPartInfo } from './functions/api-get-park-info';
 import authRouter from './controller/auth';
 import adminUsersRouter from './controller/adminUsers';
+import adminSurveysRouter from './controller/adminSurveys';
 import projectAssetsRouter from './controller/projectAssets';
 import siteSettingsRouter from './controller/siteSettings';
 import lineMembersRouter from './controller/lineMembers';
+import surveyRouter from './controller/survey';
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -58,10 +60,12 @@ const port = process.env.PORT || 8080;
       res.json(response.data);
     });
     app.post('/getPartInfo', apiGetPartInfo);
+    app.use('/survey', surveyRouter);
 
     app.use(auth);
     app.use('/auth', authRouter);
     app.use('/admin', adminUsersRouter);
+    app.use('/admin/surveys', adminSurveysRouter);
     app.use('/admin/site-settings', siteSettingsRouter);
     app.use('/assets', projectAssetsRouter);
     app.use('/line-members', lineMembersRouter);
