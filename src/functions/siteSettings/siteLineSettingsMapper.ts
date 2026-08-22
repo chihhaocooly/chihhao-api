@@ -16,12 +16,13 @@ export const toSiteLineSettingsDto = (setting: SiteLineSetting | null): SiteLine
   hasMessageApiChannelSecret: !!setting?.messageApiChannelSecretSecretName,
   messageApiChannelSecretMask: setting?.messageApiChannelSecretMask ?? null,
   botBasicId: setting?.botBasicId ?? null,
+  primaryLiffAppId: setting?.primaryLiffAppId ?? null,
   updatedByUserId: setting?.updatedByUserId ?? null,
   createdAt: toIsoString(setting?.createdAt),
   updatedAt: toIsoString(setting?.updatedAt),
 });
 
-export const toSiteLiffAppDto = (app: SiteLiffApp): SiteLiffAppDto => ({
+export const toSiteLiffAppDto = (app: SiteLiffApp, primaryLiffAppId: string | null = null): SiteLiffAppDto => ({
   id: app.id,
   liffId: app.liffId,
   description: app.description,
@@ -31,6 +32,7 @@ export const toSiteLiffAppDto = (app: SiteLiffApp): SiteLiffAppDto => ({
   botPrompt: app.botPrompt,
   moduleMode: app.moduleMode,
   qrCode: app.qrCode,
+  isPrimary: app.id === primaryLiffAppId,
   createdByUserId: app.createdByUserId ?? null,
   createdAt: toIsoString(app.createdAt),
   updatedAt: toIsoString(app.updatedAt),

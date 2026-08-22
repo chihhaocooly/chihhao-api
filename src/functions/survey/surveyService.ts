@@ -28,6 +28,7 @@ const defaultPage = 1;
 const defaultPageSize = 20;
 const surveyAssetEntityType = 'survey';
 const descriptionImageUsageProfileKey = 'surveyManagement.descriptionImage';
+const liffUrlBase = 'https://liff.line.me';
 
 export const getSurveyRuntime = async (surveyId: string, userId: string): Promise<SurveyRuntimeDto> => {
   const survey = await findSurvey(surveyId);
@@ -202,9 +203,10 @@ export const listSurveys = async (options: {
   });
 
   const start = (page - 1) * pageSize;
+  const buildFillUrl = await getSurveyFillUrlBuilder();
 
   return {
-    items: filtered.slice(start, start + pageSize).map(toAdminDto),
+    items: filtered.slice(start, start + pageSize).map((survey) => toAdminDto(survey, buildFillUrl)),
     total: filtered.length,
     page,
     pageSize,
@@ -225,7 +227,11 @@ export const getSurveyForAdmin = async (surveyKey: string): Promise<SurveyAdminD
     [surveyKey],
   ) as SurveyRow[];
 
-  return surveys[0] ? toAdminDto(surveys[0]) : null;
+  if (!surveys[0]) {
+    return null;
+  }
+
+  return toAdminDto(surveys[0], await getSurveyFillUrlBuilder());
 };
 
 export const createSurveyForAdmin = async (payload: SaveSurveyRequest): Promise<{
@@ -640,7 +646,7 @@ const normalizeSavePayload = (
   };
 };
 
-const toAdminDto = (survey: SurveyRow): SurveyAdminDto => ({
+const toAdminDto = (survey: SurveyRow, buildFillUrl: SurveyFillUrlBuilder | null = null): SurveyAdminDto => ({
   surveyKey: survey.surveyKey,
   title: survey.title,
   primaryCategoryKey: survey.primaryCategoryKey,
@@ -659,11 +665,32 @@ const toAdminDto = (survey: SurveyRow): SurveyAdminDto => ({
   finishSendMessage: toBoolean(survey.finishSendMessage),
   questions: normalizeQuestions(survey.questions),
   settings: normalizeRecord(survey.settings),
+  fillUrl: buildFillUrl ? buildFillUrl(survey.surveyKey) : null,
   responseCount: Number(survey.responseCount ?? 0) || 0,
   createdAt: toIsoString(survey.createdAt),
   updatedAt: toIsoString(survey.updatedAt),
   deletedAt: toIsoString(survey.deletedAt),
 });
+
+type SurveyFillUrlBuilder = (surveyKey: string) => string;
+
+const getSurveyFillUrlBuilder = async (): Promise<SurveyFillUrlBuilder | null> => {
+  const rows = await AppDataSource.query(
+    `
+      SELECT app.liffId
+      FROM site_line_setting setting
+      INNER JOIN site_liff_app app ON app.id = setting.primaryLiffAppId
+      WHERE setting.settingKey = 'default'
+      LIMIT 1
+    `,
+  ) as Array<{ liffId: string }>;
+  const liffId = rows[0]?.liffId;
+  if (!liffId) {
+    return null;
+  }
+
+  return (surveyKey: string) => `${liffUrlBase}/${encodeURIComponent(liffId)}/survey?surveyId=${encodeURIComponent(surveyKey)}`;
+};
 
 const adminDtoToSurveyRow = (survey: SurveyAdminDto): SurveyRow => ({
   ...survey,

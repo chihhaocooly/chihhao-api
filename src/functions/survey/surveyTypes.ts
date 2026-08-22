@@ -108,6 +108,7 @@ export interface SurveyAdminDto {
   finishSendMessage: boolean;
   questions: SurveyQuestion[];
   settings: Record<string, unknown> | null;
+  fillUrl: string | null;
   responseCount: number;
   createdAt: string | null;
   updatedAt: string | null;

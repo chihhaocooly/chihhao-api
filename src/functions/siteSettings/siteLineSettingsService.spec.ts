@@ -68,6 +68,7 @@ describe("SiteLineSettingsService", () => {
     messageApiChannelSecretSecretName: "projects/p/secrets/message-secret",
     messageApiChannelSecretMask: "mess...cret",
     botBasicId: "@bot",
+    primaryLiffAppId: "site-liff-app-id",
     updatedByUserId: "user-1",
     createdAt: new Date("2026-08-18T00:00:00.000Z"),
     updatedAt: new Date("2026-08-18T01:00:00.000Z"),
@@ -106,6 +107,21 @@ describe("SiteLineSettingsService", () => {
     } as unknown as SiteLiffAppRepository));
   });
 
+  it("marks the configured primary LIFF app in settings response", async () => {
+    SiteLiffAppRepositoryMock.mockImplementation(() => ({
+      findAll: jest.fn().mockResolvedValue([{ ...existingLiffApp }]),
+      create: createLiffApp,
+      findById: findLiffAppById,
+      save: saveLiffApp,
+      deleteById: deleteLiffAppById,
+    } as unknown as SiteLiffAppRepository));
+
+    const result = await new SiteLineSettingsService(secretStore, lineClient).getSettings();
+
+    expect(result.settings.primaryLiffAppId).toBe("site-liff-app-id");
+    expect(result.liffApps[0].isPrimary).toBe(true);
+  });
+
   it("updates secrets through the secret store and does not return plain secret values", async () => {
     secretStore.writeSecret
       .mockResolvedValueOnce("projects/p/secrets/login")
@@ -118,12 +134,14 @@ describe("SiteLineSettingsService", () => {
       messageApiChannelAccessToken: "message-api-token",
       messageApiChannelSecret: "message-api-secret",
       botBasicId: " @bot ",
+      primaryLiffAppId: "site-liff-app-id",
     }, "admin-user");
 
     expect(secretStore.writeSecret).toHaveBeenCalledTimes(3);
     expect(saveSetting).toHaveBeenCalledWith(expect.objectContaining({
       lineLoginChannelId: "login-channel-id",
       botBasicId: "@bot",
+      primaryLiffAppId: "site-liff-app-id",
       updatedByUserId: "admin-user",
     }));
     expect(JSON.stringify(result)).not.toContain("line-login-secret");
@@ -132,6 +150,16 @@ describe("SiteLineSettingsService", () => {
     expect(result.settings.hasLineLoginChannelSecret).toBe(true);
     expect(result.settings.hasMessageApiChannelAccessToken).toBe(true);
     expect(result.settings.hasMessageApiChannelSecret).toBe(true);
+  });
+
+  it("rejects a primary LIFF app id that does not exist", async () => {
+    findLiffAppById.mockResolvedValueOnce(null as never);
+
+    await expect(new SiteLineSettingsService(secretStore, lineClient).updateSettings({
+      primaryLiffAppId: "missing-liff-app-id",
+    }, "admin-user")).rejects.toThrow("主要 LIFF app 不存在");
+
+    expect(saveSetting).not.toHaveBeenCalled();
   });
 
   it("rejects LIFF endpoint URLs that are not https", async () => {
@@ -228,7 +256,23 @@ describe("SiteLineSettingsService", () => {
     expect(deleteLiffAppById).not.toHaveBeenCalled();
   });
 
+  it("blocks deleting the primary LIFF app", async () => {
+    await expect(new SiteLineSettingsService(secretStore, lineClient).deleteLiffApp(
+      "site-liff-app-id",
+      "1234567890-AbCdEf",
+    )).rejects.toThrow("此 LIFF app 已設為主要入口，請先指定其他主要 LIFF app");
+
+    expect(lineClient.issueStatelessChannelAccessToken).not.toHaveBeenCalled();
+    expect(lineClient.deleteLiffApp).not.toHaveBeenCalled();
+    expect(deleteLiffAppById).not.toHaveBeenCalled();
+  });
+
   it("deletes a LIFF app from LINE before deleting local metadata", async () => {
+    SiteLineSettingRepositoryMock.mockImplementation(() => ({
+      findCurrent: jest.fn().mockResolvedValue({ ...setting, primaryLiffAppId: null }),
+      getOrCreate: jest.fn().mockResolvedValue({ ...setting, primaryLiffAppId: null }),
+      save: saveSetting,
+    } as unknown as SiteLineSettingRepository));
     secretStore.readSecret.mockResolvedValue("line-login-secret");
     lineClient.issueStatelessChannelAccessToken.mockResolvedValue("stateless-token");
     lineClient.deleteLiffApp.mockResolvedValue();

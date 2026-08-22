@@ -47,10 +47,11 @@ export class SiteLineSettingsService {
   async getSettings(): Promise<GetSiteLineSettingsResponse> {
     const setting = await new SiteLineSettingRepository().findCurrent();
     const liffApps = await new SiteLiffAppRepository().findAll();
+    const primaryLiffAppId = setting?.primaryLiffAppId ?? null;
 
     return {
       settings: toSiteLineSettingsDto(setting),
-      liffApps: liffApps.map(toSiteLiffAppDto),
+      liffApps: liffApps.map((app) => toSiteLiffAppDto(app, primaryLiffAppId)),
     };
   }
 
@@ -64,6 +65,10 @@ export class SiteLineSettingsService {
 
     if ("botBasicId" in payload) {
       setting.botBasicId = normalizeNullableText(payload.botBasicId);
+    }
+
+    if ("primaryLiffAppId" in payload) {
+      setting.primaryLiffAppId = await this.normalizePrimaryLiffAppId(payload.primaryLiffAppId);
     }
 
     const lineLoginChannelSecret = normalizeSecret(payload.lineLoginChannelSecret);
@@ -158,9 +163,10 @@ export class SiteLineSettingsService {
     app.qrCode = request.qrCode;
 
     const savedApp = await repository.save(app);
+    const setting = await new SiteLineSettingRepository().findCurrent();
 
     return {
-      item: toSiteLiffAppDto(savedApp),
+      item: toSiteLiffAppDto(savedApp, setting?.primaryLiffAppId ?? null),
     };
   }
 
@@ -173,6 +179,11 @@ export class SiteLineSettingsService {
 
     if (!confirmLiffId || confirmLiffId !== app.liffId) {
       throw new MyError(400, "請輸入完整 LIFF ID 以確認刪除");
+    }
+
+    const setting = await new SiteLineSettingRepository().findCurrent();
+    if (setting?.primaryLiffAppId === app.id) {
+      throw new MyError(409, "此 LIFF app 已設為主要入口，請先指定其他主要 LIFF app");
     }
 
     const lineLoginCredentials = await this.getLineLoginCredentials();
@@ -233,6 +244,20 @@ export class SiteLineSettingsService {
 
   private getLiffAppRepository(): SiteLiffAppRepositoryWithMutations {
     return new SiteLiffAppRepository() as unknown as SiteLiffAppRepositoryWithMutations;
+  }
+
+  private async normalizePrimaryLiffAppId(value: string | null | undefined): Promise<string | null> {
+    const primaryLiffAppId = normalizeNullableText(value);
+    if (!primaryLiffAppId) {
+      return null;
+    }
+
+    const app = await new SiteLiffAppRepository().findById(primaryLiffAppId);
+    if (!app) {
+      throw new MyError(400, "主要 LIFF app 不存在");
+    }
+
+    return app.id;
   }
 }
 
