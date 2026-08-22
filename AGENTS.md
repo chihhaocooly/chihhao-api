@@ -12,9 +12,10 @@
 
 ## 相關 Repos 與協作邊界
 
-這個 workspace 主要有三個互相關聯的 repo：
+這個 workspace 主要有四個互相關聯的 repo：
 
 - `/Users/huangcooly/Documents/GitHubForChihhao/chihhao-angular`：前端 Angular app，透過 HTTP 呼叫本 repo。
+- `/Users/huangcooly/Documents/GitHubForChihhao/chihhao-liff`：前台 LINE LIFF Angular app，透過 HTTP 呼叫本 repo。
 - `/Users/huangcooly/Documents/GitHubForChihhao/chihhao-api`：後端 TypeScript/Express API，是 Angular 與 package 之間的 contract 層。
 - `/Users/huangcooly/Documents/GitHubForChihhao/chihhao-package`：共用 TypeScript library，發布為 `@chihhaocooly/chihhao-package`，供本 repo 使用 LINE webhook、MySQL/TypeORM entity/repository 與 DTO/type。
 
@@ -22,11 +23,12 @@
 
 ```text
 chihhao-angular -> chihhao-api -> @chihhaocooly/chihhao-package
+chihhao-liff    -> chihhao-api -> @chihhaocooly/chihhao-package
 ```
 
-- Angular 不直接依賴 `chihhao-package`；前端資料 shape 應由本 repo 的 HTTP API contract 穩定提供。
+- Angular 後台與 LIFF 前台都不直接依賴 `chihhao-package`；前端資料 shape 應由本 repo 的 HTTP API contract 穩定提供。
 - 本 repo 不應複製 package 的 entity、repository 或 DTO；需要共用型別時，先確認 `chihhao-package` 是否已有 public export。
-- 修改 API response、request、route 或 auth 行為時，必須同步檢查 Angular API service 與畫面使用點，尤其是 `chihhao-angular/src/app/shared/chih-hao-api/`。
+- 修改 API response、request、route 或 auth 行為時，必須同步檢查 Angular API service、LIFF API service 與畫面使用點，尤其是 `chihhao-angular/src/app/shared/chih-hao-api/` 與 `chihhao-liff/src/app/features/*/*-api.service.ts`。
 - 修改 package public exports、DTO/type、entity、repository、migration 或 LINE/MySQL 行為時，必須同步檢查本 repo 對 `@chihhaocooly/chihhao-package` 的依賴版本與使用點。
 - 新增模組、跨 repo 功能、API contract 變更或資料模型變更時，規格以 Angular repo 的 `specs/modules/<module-name>/` 為主要入口；若需求文件已存在於其他規格目錄，先確認使用者要沿用哪個位置，不要分裂成兩套 contract。
 
@@ -34,15 +36,17 @@ chihhao-angular -> chihhao-api -> @chihhaocooly/chihhao-package
 
 - 只改 API 內部實作且不改 endpoint contract：通常只需要修改 `chihhao-api`，但仍需跑本 repo build/test。
 - 新增或修改 endpoint、request/response shape、錯誤碼或權限：先更新或確認規格，再修改本 repo，最後同步 Angular service/type/UI。
+- 若 endpoint 供 LINE 使用者端使用，也必須同步檢查 `chihhao-liff` 的 service、route、component 與登入/LIFF 流程。
 - 需要新的 package DTO、entity、repository、migration 或 LINE webhook 共用行為：先到 `chihhao-package` 修改、build、commit 並發布正式版本；本 repo 安裝該正式版本後再繼續對接，最後檢查 Angular 是否受 API contract 影響。
-- 若只是不確定前端需求或畫面流程，不要猜測欄位；到 `chihhao-angular` 查 spec、route、component 與 API service。
+- 若只是不確定前端需求或畫面流程，不要猜測欄位；到 `chihhao-angular` 或 `chihhao-liff` 查 spec、route、component 與 API service。
 
 跨 repo 驗證建議：
 
 - 只改 API：在 `chihhao-api` 執行 `npm run build`，若動到 business logic、middleware、controller 或型別，優先也跑 `npm test`。
 - 改 API + Angular：先在 `chihhao-api` 執行 `npm run build`，必要時 `npm test`；再回 `chihhao-angular` 執行 `npm run build`。
+- 改 API + LIFF：先在 `chihhao-api` 執行 `npm run build`，必要時 `npm test`；再回 `chihhao-liff` 執行 `npm run build`。
 - 改 package + API：先在 `chihhao-package` 執行 build/test、commit、tag/publish；再讓本 repo 安裝已發布版本，最後在 `chihhao-api` 執行 `npm run build` 與 `npm test`。
-- 改 package + API + Angular：先發布 package 正式版本，再更新/build/test API，最後依 API contract build/test Angular。
+- 改 package + API + Angular/LIFF：先發布 package 正式版本，再更新/build/test API，最後依 API contract build/test 受影響前端。
 - 不要在未獲明確要求時執行 deploy、docker push、npm publish、migration:run、migration:revert、sync-db-schema 或其他會改遠端資源/資料庫的指令。
 
 若 `chihhao-package` 有 public exports、DTO、entity、repository、migration 或 LINE/MySQL 行為變更，預設必須先發布正式 package 版本，再讓本 repo 更新正式 dependency/lockfile；不要把本機 package 安裝當作完成驗證。
@@ -165,7 +169,7 @@ Docker image：
 - 因 `npm start` 需要 `lib/index.js`，build 必須在 image build 前完成或確保 image 內已有 `lib/`。
 - `.dockerignore` 目前只忽略少量檔案，變更 Docker 行為前先檢查 build context。
 
-部署指令：
+本機部署 script：
 
 ```sh
 npm run docker:build
@@ -174,16 +178,16 @@ npm run deploy
 npm run deploy:dev
 ```
 
+- 這些 script 只保留為既有維護工具，不作為標準部署流程。
 - `docker:build` 會先跑 format，會修改檔案。
-- `deploy:dev` 會 build、docker build/push，並部署 Cloud Run `chihhao-api` 到 `asia-east1`。
-- `deploy` 只執行 Cloud Run deploy，使用 `package.json` 版本作 image tag。
-- 不要在未獲明確要求時執行 deploy、docker push 或會改遠端資源的 gcloud/kubectl 指令。
+- `docker:push`、`deploy:dev`、`deploy` 會推送 image 或更新 Cloud Run 遠端資源；不要在未獲明確要求時執行。
 
-GitHub Actions：
+正式部署：
 
-- Tag `s*` 會建置並部署到 Cloud Run。
-- Tag `sg*` 會建置、推 image，並套用 `.kube/stage-deployment.yaml` 到 GKE。
-- Cloud Run workflow 使用 Node 18；GKE workflow 目前使用 Node 14。若修改需要新版 Node 的程式碼，必須同步評估 workflow。
+- 正式部署一律透過建立並 push 版本 tag 觸發 GitHub CI/CD；不要在本機用 `npm run deploy`、`npm run deploy:dev`、`docker push`、`gcloud run deploy` 或 `kubectl apply` 直接部署，除非使用者明確要求例外操作。
+- 目前 `.github/workflows/deploy-to-stage-on-push-tag.yml` 在 push `s*` tag 時建置、推送 Docker image，並部署 Cloud Run service `chihhao-api` 到 `asia-east1`。
+- Workflow 使用 `.nvmrc` 指定的 Node 版本，並使用 `GCP_SA_COOLYHUANG_GITHUB_KEY`、`CHIHHAO_NPM_DOWNLOAD_TOKEN` 等 GitHub secrets；不要修改或外洩 secrets。
+- 建立或 push tag 會觸發正式部署；未獲使用者明確要求前，不要自動建立 tag、push tag 或執行部署。
 
 ## 驗證流程
 
