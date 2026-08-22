@@ -18,6 +18,7 @@ import projectAssetsRouter from './controller/projectAssets';
 import siteSettingsRouter from './controller/siteSettings';
 import lineMembersRouter from './controller/lineMembers';
 import surveyRouter from './controller/survey';
+import lineAuthRouter from './controller/lineAuth';
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -60,6 +61,7 @@ const port = process.env.PORT || 8080;
       res.json(response.data);
     });
     app.post('/getPartInfo', apiGetPartInfo);
+    app.use('/line-auth-login', lineAuthRouter);
     app.use('/survey', surveyRouter);
 
     app.use(auth);
