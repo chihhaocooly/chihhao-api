@@ -4,8 +4,10 @@ import apiCopySurvey from './apiCopySurvey';
 import apiCreateSurvey from './apiCreateSurvey';
 import apiDeleteSurvey from './apiDeleteSurvey';
 import apiGetSurvey from './apiGetSurvey';
+import apiListSurveyCategories from './apiListSurveyCategories';
 import apiListSurveyReports from './apiListSurveyReports';
 import apiListSurveys from './apiListSurveys';
+import apiSaveSurveyCategories from './apiSaveSurveyCategories';
 import apiUpdateSurvey from './apiUpdateSurvey';
 
 const adminSurveysRouter = express.Router();
@@ -20,6 +22,18 @@ adminSurveysRouter.post(
   '/',
   requireRole(['admin', 'manager']),
   apiCreateSurvey,
+);
+
+adminSurveysRouter.get(
+  '/settings/categories',
+  requireRole(['admin', 'manager', 'viewer']),
+  apiListSurveyCategories,
+);
+
+adminSurveysRouter.put(
+  '/settings/categories',
+  requireRole(['admin', 'manager']),
+  apiSaveSurveyCategories,
 );
 
 adminSurveysRouter.get(

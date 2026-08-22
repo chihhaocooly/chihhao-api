@@ -2,6 +2,7 @@ export const projectAssetOwnerModules = [
   'messageManagement',
   'lineRichMenu',
   'articleManagement',
+  'surveyManagement',
 ] as const;
 
 export type ProjectAssetOwnerModule = typeof projectAssetOwnerModules[number];
@@ -25,6 +26,7 @@ export const projectAssetUsageProfileKeys = [
   'messageManagement.imagemap',
   'lineRichMenu.richMenuImage',
   'articleManagement.coverImage',
+  'surveyManagement.descriptionImage',
 ] as const;
 
 export type ProjectAssetUsageProfileKey = typeof projectAssetUsageProfileKeys[number];
@@ -35,7 +37,8 @@ export type ProjectAssetReferenceRole =
   | 'carouselImage'
   | 'imagemap'
   | 'richMenuImage'
-  | 'articleCover';
+  | 'articleCover'
+  | 'surveyDescriptionImage';
 
 export interface ProjectAssetVariantDto {
   variantKey: string;

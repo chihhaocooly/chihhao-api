@@ -112,6 +112,23 @@ export const projectAssetUsageProfiles: ProjectAssetUsageProfileDto[] = [
     aspectRatio: null,
     requiresImagemapVariants: false,
   },
+  {
+    usageProfileKey: 'surveyManagement.descriptionImage',
+    ownerModule: 'surveyManagement',
+    label: '問卷說明圖片',
+    description: '問卷說明頁顯示的圖片，可於 LIFF 前台公開讀取。',
+    fileKind: 'image',
+    allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+    maxSizeBytes: 3 * oneMb,
+    minWidth: null,
+    minHeight: null,
+    maxWidth: 2400,
+    maxHeight: 1600,
+    exactWidth: null,
+    exactHeight: null,
+    aspectRatio: null,
+    requiresImagemapVariants: false,
+  },
 ];
 
 export const isProjectAssetUsageProfileKey = (value: unknown): value is ProjectAssetUsageProfileKey => {

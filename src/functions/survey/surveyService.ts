@@ -1,17 +1,20 @@
-import { AppDataSource } from '@chihhaocooly/chihhao-package';
+import { AppDataSource, ProjectAssetReferenceRepository, type ProjectAssetReferenceInput } from '@chihhaocooly/chihhao-package';
 import { v4 as uuidv4 } from 'uuid';
 import { MyError } from '../../@types/my-error';
 import {
+  ListSurveyReportsResult,
   ListSurveysResult,
+  SaveSurveyCategoriesRequest,
   SaveSurveyRequest,
   SurveyAdminDto,
   SurveyAnswerPayload,
+  SurveyCategoryDto,
+  SurveyCategoryRow,
   SurveyFieldError,
   SurveyQuestion,
   SurveyQuestionOption,
   SurveyReportDetailDto,
   SurveyReportRow,
-  SurveyReportSummaryDto,
   SurveyRow,
   SurveyRuntimeDto,
   SurveyRuntimeStatusInfo,
@@ -23,9 +26,11 @@ import {
 
 const defaultPage = 1;
 const defaultPageSize = 20;
+const surveyAssetEntityType = 'survey';
+const descriptionImageUsageProfileKey = 'surveyManagement.descriptionImage';
 
-export const getSurveyRuntime = async (site: string, surveyId: string, userId: string): Promise<SurveyRuntimeDto> => {
-  const survey = await findSurvey(site, surveyId);
+export const getSurveyRuntime = async (surveyId: string, userId: string): Promise<SurveyRuntimeDto> => {
+  const survey = await findSurvey(surveyId);
   if (!survey) {
     throw new MyError(404, '問卷不存在');
   }
@@ -35,7 +40,6 @@ export const getSurveyRuntime = async (site: string, surveyId: string, userId: s
 
   return {
     id: survey.surveyKey,
-    site: survey.site,
     title: survey.title,
     descriptionText: survey.descriptionText ?? undefined,
     descriptionImage: survey.descriptionImage ?? undefined,
@@ -56,7 +60,7 @@ export const getSurveyRuntime = async (site: string, surveyId: string, userId: s
 };
 
 export const submitSurvey = async (request: SurveySubmitRequest): Promise<SurveySubmitResponse> => {
-  const survey = await findSurvey(request.site, request.surveyId);
+  const survey = await findSurvey(request.surveyId);
   if (!survey) {
     throw new MyError(404, '問卷不存在');
   }
@@ -77,14 +81,13 @@ export const submitSurvey = async (request: SurveySubmitRequest): Promise<Survey
   await AppDataSource.query(
     `
       INSERT INTO survey_report
-        (reportKey, surveyKey, site, lineUserId, displayName, answers, submittedAt)
+        (reportKey, surveyKey, lineUserId, displayName, answers, submittedAt)
       VALUES
-        (?, ?, ?, ?, ?, CAST(? AS JSON), CURRENT_TIMESTAMP)
+        (?, ?, ?, ?, CAST(? AS JSON), CURRENT_TIMESTAMP)
     `,
     [
       reportKey,
       survey.surveyKey,
-      survey.site,
       request.userId,
       normalizeNullableString(request.displayName, 120),
       JSON.stringify(request.answers),
@@ -98,11 +101,10 @@ export const submitSurvey = async (request: SurveySubmitRequest): Promise<Survey
 };
 
 export const listMySurveyReports = async (
-  site: string,
   surveyId: string,
   userId: string,
-): Promise<SurveyReportSummaryDto[]> => {
-  const survey = await findSurvey(site, surveyId);
+): Promise<SurveyReportDetailDto[]> => {
+  const survey = await findSurvey(surveyId);
   if (!survey) {
     throw new MyError(404, '問卷不存在');
   }
@@ -113,29 +115,23 @@ export const listMySurveyReports = async (
 
   const reports = await AppDataSource.query(
     `
-      SELECT reportKey, surveyKey, site, lineUserId, displayName, answers, submittedAt
+      SELECT reportKey, surveyKey, lineUserId, displayName, answers, submittedAt
       FROM survey_report
-      WHERE surveyKey = ? AND site = ? AND lineUserId = ?
+      WHERE surveyKey = ? AND lineUserId = ?
       ORDER BY submittedAt DESC
     `,
-    [survey.surveyKey, survey.site, userId],
+    [survey.surveyKey, userId],
   ) as SurveyReportRow[];
 
-  return reports.map((report) => ({
-    reportKey: report.reportKey,
-    surveyId: survey.surveyKey,
-    surveyTitle: survey.title,
-    submittedAt: toIsoString(report.submittedAt) ?? '',
-  }));
+  return reports.map((report) => toReportDetailDto(survey, report));
 };
 
 export const getMySurveyReport = async (
-  site: string,
   surveyId: string,
   userId: string,
   reportKey: string,
 ): Promise<SurveyReportDetailDto> => {
-  const survey = await findSurvey(site, surveyId);
+  const survey = await findSurvey(surveyId);
   if (!survey) {
     throw new MyError(404, '問卷不存在');
   }
@@ -146,12 +142,12 @@ export const getMySurveyReport = async (
 
   const reports = await AppDataSource.query(
     `
-      SELECT reportKey, surveyKey, site, lineUserId, displayName, answers, submittedAt
+      SELECT reportKey, surveyKey, lineUserId, displayName, answers, submittedAt
       FROM survey_report
-      WHERE reportKey = ? AND surveyKey = ? AND site = ? AND lineUserId = ?
+      WHERE reportKey = ? AND surveyKey = ? AND lineUserId = ?
       LIMIT 1
     `,
-    [reportKey, survey.surveyKey, survey.site, userId],
+    [reportKey, survey.surveyKey, userId],
   ) as SurveyReportRow[];
 
   const report = reports[0];
@@ -159,31 +155,14 @@ export const getMySurveyReport = async (
     throw new MyError(404, '填寫紀錄不存在');
   }
 
-  const questions = normalizeQuestions(survey.questions);
-  const answers = normalizeAnswers(report.answers);
-
-  return {
-    reportKey: report.reportKey,
-    surveyId: survey.surveyKey,
-    surveyTitle: survey.title,
-    submittedAt: toIsoString(report.submittedAt) ?? '',
-    answers: answers.map((answer) => {
-      const question = questions.find((item) => item.id === answer.questionId);
-      return {
-        questionId: answer.questionId,
-        questionTitle: question?.title ?? answer.questionId,
-        type: answer.type,
-        answer: answer.answer,
-        extraText: answer.extraText,
-      };
-    }),
-  };
+  return toReportDetailDto(survey, report);
 };
 
 export const listSurveys = async (options: {
   q?: string;
-  site?: string;
   status?: string;
+  primaryCategoryKey?: string;
+  secondaryCategoryKey?: string;
   page?: number;
   pageSize?: number;
 }): Promise<ListSurveysResult> => {
@@ -191,9 +170,10 @@ export const listSurveys = async (options: {
   const pageSize = Math.min(Math.max(Number(options.pageSize ?? defaultPageSize) || defaultPageSize, 1), 100);
   const allSurveys = await AppDataSource.query(
     `
-      SELECT survey.*, COUNT(survey_report.reportKey) AS responseCount
+      SELECT survey.*, asset.publicUrl AS descriptionImage, COUNT(survey_report.reportKey) AS responseCount
       FROM survey
       LEFT JOIN survey_report ON survey_report.surveyKey = survey.surveyKey
+      LEFT JOIN project_asset asset ON asset.assetKey = survey.descriptionImageAssetKey
       WHERE survey.deletedAt IS NULL
       GROUP BY survey.surveyKey
       ORDER BY survey.updatedAt DESC, survey.createdAt DESC
@@ -202,11 +182,15 @@ export const listSurveys = async (options: {
 
   const search = options.q?.trim().toLowerCase();
   const filtered = allSurveys.filter((survey) => {
-    if (options.site && survey.site !== options.site) {
+    if (options.status && options.status !== 'all' && getAdminStatus(survey) !== options.status) {
       return false;
     }
 
-    if (options.status && options.status !== 'all' && getAdminStatus(survey) !== options.status) {
+    if (options.primaryCategoryKey && survey.primaryCategoryKey !== options.primaryCategoryKey) {
+      return false;
+    }
+
+    if (options.secondaryCategoryKey && survey.secondaryCategoryKey !== options.secondaryCategoryKey) {
       return false;
     }
 
@@ -214,9 +198,7 @@ export const listSurveys = async (options: {
       return true;
     }
 
-    return survey.title.toLowerCase().includes(search)
-      || survey.site.toLowerCase().includes(search)
-      || (survey.categoryKey?.toLowerCase().includes(search) ?? false);
+    return survey.title.toLowerCase().includes(search);
   });
 
   const start = (page - 1) * pageSize;
@@ -232,9 +214,10 @@ export const listSurveys = async (options: {
 export const getSurveyForAdmin = async (surveyKey: string): Promise<SurveyAdminDto | null> => {
   const surveys = await AppDataSource.query(
     `
-      SELECT survey.*, COUNT(survey_report.reportKey) AS responseCount
+      SELECT survey.*, asset.publicUrl AS descriptionImage, COUNT(survey_report.reportKey) AS responseCount
       FROM survey
       LEFT JOIN survey_report ON survey_report.surveyKey = survey.surveyKey
+      LEFT JOIN project_asset asset ON asset.assetKey = survey.descriptionImageAssetKey
       WHERE survey.surveyKey = ? AND survey.deletedAt IS NULL
       GROUP BY survey.surveyKey
       LIMIT 1
@@ -249,7 +232,7 @@ export const createSurveyForAdmin = async (payload: SaveSurveyRequest): Promise<
   validation: SurveyValidationResult;
   item: SurveyAdminDto | null;
 }> => {
-  const normalized = normalizeSavePayload(payload, true);
+  const normalized = normalizeSavePayload(payload);
   if (!normalized.validation.isValid || !normalized.value) {
     return { validation: normalized.validation, item: null };
   }
@@ -259,25 +242,26 @@ export const createSurveyForAdmin = async (payload: SaveSurveyRequest): Promise<
     `
       INSERT INTO survey
         (
-          surveyKey, site, title, categoryKey, enable, startAt, endAt, repeatable,
-          showRepeatableRecords, descriptionText, descriptionImage, relatedWebsiteUrl,
-          privacyPolicy, finishText, finishSendMessage, questions, settings, createdAt, updatedAt
+          surveyKey, title, primaryCategoryKey, secondaryCategoryKey, enable, startAt, endAt,
+          repeatable, showRepeatableRecords, descriptionText, descriptionImageAssetKey,
+          relatedWebsiteUrl, privacyPolicy, finishText, finishSendMessage, questions, settings,
+          createdAt, updatedAt
         )
       VALUES
         (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `,
     [
       surveyKey,
-      normalized.value.site,
       normalized.value.title,
-      normalized.value.categoryKey,
+      normalized.value.primaryCategoryKey,
+      normalized.value.secondaryCategoryKey,
       normalized.value.enable ? 1 : 0,
       normalized.value.startAt,
       normalized.value.endAt,
       normalized.value.repeatable ? 1 : 0,
       normalized.value.showRepeatableRecords ? 1 : 0,
       normalized.value.descriptionText,
-      normalized.value.descriptionImage,
+      normalized.value.descriptionImageAssetKey,
       normalized.value.relatedWebsiteUrl,
       normalized.value.privacyPolicy,
       normalized.value.finishText,
@@ -286,6 +270,8 @@ export const createSurveyForAdmin = async (payload: SaveSurveyRequest): Promise<
       JSON.stringify(normalized.value.settings ?? null),
     ],
   );
+
+  await replaceSurveyImageReference(surveyKey, normalized.value.title, normalized.value.descriptionImageAssetKey);
 
   return {
     validation: normalized.validation,
@@ -305,7 +291,7 @@ export const updateSurveyForAdmin = async (
     return { validation: null, item: null };
   }
 
-  const normalized = normalizeSavePayload({ ...current, ...payload }, false);
+  const normalized = normalizeSavePayload({ ...current, ...payload });
   if (!normalized.validation.isValid || !normalized.value) {
     return { validation: normalized.validation, item: null };
   }
@@ -314,16 +300,16 @@ export const updateSurveyForAdmin = async (
     `
       UPDATE survey
       SET
-        site = ?,
         title = ?,
-        categoryKey = ?,
+        primaryCategoryKey = ?,
+        secondaryCategoryKey = ?,
         enable = ?,
         startAt = ?,
         endAt = ?,
         repeatable = ?,
         showRepeatableRecords = ?,
         descriptionText = ?,
-        descriptionImage = ?,
+        descriptionImageAssetKey = ?,
         relatedWebsiteUrl = ?,
         privacyPolicy = ?,
         finishText = ?,
@@ -334,16 +320,16 @@ export const updateSurveyForAdmin = async (
       WHERE surveyKey = ? AND deletedAt IS NULL
     `,
     [
-      normalized.value.site,
       normalized.value.title,
-      normalized.value.categoryKey,
+      normalized.value.primaryCategoryKey,
+      normalized.value.secondaryCategoryKey,
       normalized.value.enable ? 1 : 0,
       normalized.value.startAt,
       normalized.value.endAt,
       normalized.value.repeatable ? 1 : 0,
       normalized.value.showRepeatableRecords ? 1 : 0,
       normalized.value.descriptionText,
-      normalized.value.descriptionImage,
+      normalized.value.descriptionImageAssetKey,
       normalized.value.relatedWebsiteUrl,
       normalized.value.privacyPolicy,
       normalized.value.finishText,
@@ -353,6 +339,8 @@ export const updateSurveyForAdmin = async (
       surveyKey,
     ],
   );
+
+  await replaceSurveyImageReference(surveyKey, normalized.value.title, normalized.value.descriptionImageAssetKey);
 
   return {
     validation: normalized.validation,
@@ -385,18 +373,28 @@ export const deleteSurveyForAdmin = async (surveyKey: string): Promise<boolean> 
     [surveyKey],
   ) as { affectedRows?: number } | { affected?: number };
 
-  return getAffectedRows(result) > 0;
+  const deleted = getAffectedRows(result) > 0;
+  if (deleted) {
+    await new ProjectAssetReferenceRepository().deleteForEntity(surveyAssetEntityType, surveyKey);
+  }
+
+  return deleted;
 };
 
-export const listSurveyReportsForAdmin = async (surveyKey: string): Promise<SurveyReportDetailDto[]> => {
+export const listSurveyReportsForAdmin = async (
+  surveyKey: string,
+  options: { q?: string; page?: number; pageSize?: number } = {},
+): Promise<ListSurveyReportsResult> => {
   const survey = await getSurveyForAdmin(surveyKey);
   if (!survey) {
     throw new MyError(404, '問卷不存在');
   }
 
+  const page = Math.max(Number(options.page ?? defaultPage) || defaultPage, 1);
+  const pageSize = Math.min(Math.max(Number(options.pageSize ?? defaultPageSize) || defaultPageSize, 1), 100);
   const reports = await AppDataSource.query(
     `
-      SELECT reportKey, surveyKey, site, lineUserId, displayName, answers, submittedAt
+      SELECT reportKey, surveyKey, lineUserId, displayName, answers, submittedAt
       FROM survey_report
       WHERE surveyKey = ?
       ORDER BY submittedAt DESC
@@ -404,35 +402,111 @@ export const listSurveyReportsForAdmin = async (surveyKey: string): Promise<Surv
     [surveyKey],
   ) as SurveyReportRow[];
 
-  return reports.map((report) => ({
-    reportKey: report.reportKey,
-    surveyId: survey.surveyKey,
-    surveyTitle: survey.title,
-    submittedAt: toIsoString(report.submittedAt) ?? '',
-    answers: normalizeAnswers(report.answers).map((answer) => {
-      const question = survey.questions.find((item) => item.id === answer.questionId);
-      return {
-        questionId: answer.questionId,
-        questionTitle: question?.title ?? answer.questionId,
-        type: answer.type,
-        answer: answer.answer,
-        extraText: answer.extraText,
-      };
-    }),
-  }));
+  const search = options.q?.trim().toLowerCase();
+  const filtered = search
+    ? reports.filter((report) => report.displayName?.toLowerCase().includes(search)
+      || report.lineUserId.toLowerCase().includes(search)
+      || JSON.stringify(report.answers).toLowerCase().includes(search))
+    : reports;
+  const start = (page - 1) * pageSize;
+  const surveyRow = adminDtoToSurveyRow(survey);
+
+  return {
+    items: filtered.slice(start, start + pageSize).map((report) => toReportDetailDto(surveyRow, report)),
+    total: filtered.length,
+    page,
+    pageSize,
+  };
 };
 
-const findSurvey = async (site: string, surveyKey: string): Promise<SurveyRow | null> => {
+export const listSurveyCategories = async (): Promise<{ categories: SurveyCategoryDto[] }> => {
+  const rows = await AppDataSource.query(
+    `
+      SELECT categoryKey, parentCategoryKey, name, sortOrder
+      FROM survey_category
+      WHERE deletedAt IS NULL
+      ORDER BY parentCategoryKey IS NOT NULL, sortOrder ASC, createdAt ASC
+    `,
+  ) as SurveyCategoryRow[];
+
+  return { categories: toCategoryTree(rows) };
+};
+
+export const saveSurveyCategories = async (
+  payload: SaveSurveyCategoriesRequest,
+): Promise<{ validation: SurveyValidationResult; categories: SurveyCategoryDto[] }> => {
+  const normalized = normalizeCategoryPayload(payload);
+  if (!normalized.validation.isValid) {
+    return { validation: normalized.validation, categories: [] };
+  }
+
+  const currentRows = await AppDataSource.query(
+    `
+      SELECT categoryKey, parentCategoryKey, name, sortOrder
+      FROM survey_category
+      WHERE deletedAt IS NULL
+    `,
+  ) as SurveyCategoryRow[];
+  const currentKeys = new Set(currentRows.map((row) => row.categoryKey));
+  const incomingKeys = new Set<string>();
+  for (const category of normalized.categories) {
+    incomingKeys.add(category.categoryKey);
+    for (const child of category.children) {
+      incomingKeys.add(child.categoryKey);
+    }
+  }
+
+  const removedKeys = [...currentKeys].filter((key) => !incomingKeys.has(key));
+  const usedRemovedKeys = removedKeys.length > 0 ? await findUsedCategoryKeys(removedKeys) : [];
+  if (usedRemovedKeys.length > 0) {
+    return {
+      validation: {
+        isValid: false,
+        fieldErrors: [{
+          field: 'categories',
+          message: '分類仍被問卷使用，請先調整問卷分類後再刪除',
+        }],
+      },
+      categories: [],
+    };
+  }
+
+  if (removedKeys.length > 0) {
+    await AppDataSource.query(
+      `
+        UPDATE survey_category
+        SET deletedAt = CURRENT_TIMESTAMP, updatedAt = CURRENT_TIMESTAMP
+        WHERE categoryKey IN (${removedKeys.map(() => '?').join(',')})
+      `,
+      removedKeys,
+    );
+  }
+
+  for (const category of normalized.categories) {
+    await upsertCategory(category.categoryKey, null, category.name, category.sortOrder);
+    for (const child of category.children) {
+      await upsertCategory(child.categoryKey, category.categoryKey, child.name, child.sortOrder);
+    }
+  }
+
+  return {
+    validation: { isValid: true, fieldErrors: [] },
+    ...(await listSurveyCategories()),
+  };
+};
+
+const findSurvey = async (surveyKey: string): Promise<SurveyRow | null> => {
   const surveys = await AppDataSource.query(
     `
-      SELECT survey.*, COUNT(survey_report.reportKey) AS responseCount
+      SELECT survey.*, asset.publicUrl AS descriptionImage, COUNT(survey_report.reportKey) AS responseCount
       FROM survey
       LEFT JOIN survey_report ON survey_report.surveyKey = survey.surveyKey
-      WHERE survey.site = ? AND survey.surveyKey = ? AND survey.deletedAt IS NULL
+      LEFT JOIN project_asset asset ON asset.assetKey = survey.descriptionImageAssetKey
+      WHERE survey.surveyKey = ? AND survey.deletedAt IS NULL
       GROUP BY survey.surveyKey
       LIMIT 1
     `,
-    [site, surveyKey],
+    [surveyKey],
   ) as SurveyRow[];
 
   return surveys[0] ?? null;
@@ -461,11 +535,11 @@ const resolveRuntimeStatus = (survey: SurveyRow, hasSubmitted: boolean): SurveyR
   const startAt = toTimeValue(survey.startAt);
   const endAt = toTimeValue(survey.endAt);
 
-  if (startAt && startAt > now) {
+  if (startAt !== null && now < startAt) {
     return { state: 'not-started', message: '此問卷尚未開始。' };
   }
 
-  if (endAt && endAt < now) {
+  if (endAt !== null && now > endAt) {
     return { state: 'expired', message: '此問卷已結束。' };
   }
 
@@ -478,49 +552,41 @@ const resolveRuntimeStatus = (survey: SurveyRow, hasSubmitted: boolean): SurveyR
 
 const validateAnswers = (questions: SurveyQuestion[], answers: SurveyAnswerPayload[]): SurveyValidationResult => {
   const fieldErrors: SurveyFieldError[] = [];
+  const answerMap = new Map(answers.map((answer) => [answer.questionId, answer]));
 
   for (const question of questions) {
-    const answer = answers.find((item) => item.questionId === question.id);
-    if (!answer) {
-      if (question.required) {
-        fieldErrors.push({ field: question.id, message: `請完成「${question.title}」` });
-      }
+    const answer = answerMap.get(question.id);
+    if (!question.required) {
       continue;
     }
 
-    if (question.required && !hasAnswerValue(answer.answer)) {
-      fieldErrors.push({ field: question.id, message: `請完成「${question.title}」` });
+    if (!answer || isEmptyAnswer(answer.answer)) {
+      fieldErrors.push({ field: question.id, message: `請填寫「${question.title}」` });
+      continue;
     }
 
-    for (const option of question.data ?? []) {
-      if (!option.enableText || !isOptionSelected(answer.answer, option)) {
-        continue;
-      }
-
-      const value = answer.extraText?.[optionValue(option)] ?? '';
-      if (value.trim().length === 0) {
-        fieldErrors.push({ field: question.id, message: `請補充「${option.title}」說明` });
-      }
+    const missingExtraText = (question.data ?? []).some((option) => (
+      option.enableText && isOptionSelected(answer.answer, option) && !answer.extraText?.[optionValue(option)]?.trim()
+    ));
+    if (missingExtraText) {
+      fieldErrors.push({ field: question.id, message: `請補充「${question.title}」的文字說明` });
     }
   }
 
-  return {
-    isValid: fieldErrors.length === 0,
-    fieldErrors,
-  };
+  return { isValid: fieldErrors.length === 0, fieldErrors };
 };
 
 interface NormalizedSurveyValue {
-  site: string;
   title: string;
-  categoryKey: string | null;
+  primaryCategoryKey: string | null;
+  secondaryCategoryKey: string | null;
   enable: boolean;
   startAt: string | null;
   endAt: string | null;
   repeatable: boolean;
   showRepeatableRecords: boolean;
   descriptionText: string | null;
-  descriptionImage: string | null;
+  descriptionImageAssetKey: string | null;
   relatedWebsiteUrl: string | null;
   privacyPolicy: string | null;
   finishText: string | null;
@@ -531,52 +597,43 @@ interface NormalizedSurveyValue {
 
 const normalizeSavePayload = (
   payload: SaveSurveyRequest,
-  requireSite: boolean,
 ): {
   validation: SurveyValidationResult;
   value: NormalizedSurveyValue | null;
 } => {
   const fieldErrors: SurveyFieldError[] = [];
-  const site = normalizeNullableString(payload.site, 80);
   const title = normalizeNullableString(payload.title, 100);
-  const questions = normalizeQuestions(payload.questions);
-
-  if (requireSite && !site) {
-    fieldErrors.push({ field: 'site', message: '請輸入站台代碼' });
-  }
 
   if (!title) {
     fieldErrors.push({ field: 'title', message: '請輸入問卷標題' });
   }
 
+  const questions = normalizeQuestions(payload.questions);
   if (questions.length === 0) {
     fieldErrors.push({ field: 'questions', message: '請至少建立一個題目' });
   }
 
-  if (fieldErrors.length > 0 || !site || !title) {
-    return {
-      validation: { isValid: false, fieldErrors },
-      value: null,
-    };
+  if (fieldErrors.length > 0 || !title) {
+    return { validation: { isValid: false, fieldErrors }, value: null };
   }
 
   return {
-    validation: { isValid: true, fieldErrors },
+    validation: { isValid: true, fieldErrors: [] },
     value: {
-      site,
       title,
-      categoryKey: normalizeNullableString(payload.categoryKey, 80),
-      enable: normalizeBoolean(payload.enable),
-      startAt: normalizeDateString(payload.startAt),
-      endAt: normalizeDateString(payload.endAt),
-      repeatable: normalizeBoolean(payload.repeatable),
-      showRepeatableRecords: normalizeBoolean(payload.showRepeatableRecords),
+      primaryCategoryKey: normalizeNullableString(payload.primaryCategoryKey, 80),
+      secondaryCategoryKey: normalizeNullableString(payload.secondaryCategoryKey, 80),
+      enable: toBoolean(payload.enable),
+      startAt: normalizeDateValue(payload.startAt),
+      endAt: normalizeDateValue(payload.endAt),
+      repeatable: toBoolean(payload.repeatable),
+      showRepeatableRecords: toBoolean(payload.showRepeatableRecords),
       descriptionText: normalizeNullableString(payload.descriptionText, 10000),
-      descriptionImage: normalizeNullableString(payload.descriptionImage, 2048),
+      descriptionImageAssetKey: normalizeNullableString(payload.descriptionImageAssetKey, 36),
       relatedWebsiteUrl: normalizeNullableString(payload.relatedWebsiteUrl, 2048),
       privacyPolicy: normalizeNullableString(payload.privacyPolicy, 10000),
       finishText: normalizeNullableString(payload.finishText, 10000),
-      finishSendMessage: normalizeBoolean(payload.finishSendMessage),
+      finishSendMessage: toBoolean(payload.finishSendMessage),
       questions,
       settings: normalizeRecord(payload.settings),
     },
@@ -585,16 +642,17 @@ const normalizeSavePayload = (
 
 const toAdminDto = (survey: SurveyRow): SurveyAdminDto => ({
   surveyKey: survey.surveyKey,
-  site: survey.site,
   title: survey.title,
-  categoryKey: survey.categoryKey,
+  primaryCategoryKey: survey.primaryCategoryKey,
+  secondaryCategoryKey: survey.secondaryCategoryKey,
   enable: toBoolean(survey.enable),
   startAt: toIsoString(survey.startAt),
   endAt: toIsoString(survey.endAt),
   repeatable: toBoolean(survey.repeatable),
   showRepeatableRecords: toBoolean(survey.showRepeatableRecords),
   descriptionText: survey.descriptionText,
-  descriptionImage: survey.descriptionImage,
+  descriptionImageAssetKey: survey.descriptionImageAssetKey,
+  descriptionImage: survey.descriptionImage ?? null,
   relatedWebsiteUrl: survey.relatedWebsiteUrl,
   privacyPolicy: survey.privacyPolicy,
   finishText: survey.finishText,
@@ -607,6 +665,40 @@ const toAdminDto = (survey: SurveyRow): SurveyAdminDto => ({
   deletedAt: toIsoString(survey.deletedAt),
 });
 
+const adminDtoToSurveyRow = (survey: SurveyAdminDto): SurveyRow => ({
+  ...survey,
+  enable: survey.enable,
+  repeatable: survey.repeatable,
+  showRepeatableRecords: survey.showRepeatableRecords,
+  finishSendMessage: survey.finishSendMessage,
+  questions: survey.questions,
+  settings: survey.settings,
+});
+
+const toReportDetailDto = (survey: SurveyRow, report: SurveyReportRow): SurveyReportDetailDto => {
+  const questions = normalizeQuestions(survey.questions);
+  const answers = normalizeAnswers(report.answers);
+
+  return {
+    reportKey: report.reportKey,
+    surveyId: survey.surveyKey,
+    surveyTitle: survey.title,
+    displayName: report.displayName,
+    lineUserId: report.lineUserId,
+    submittedAt: toIsoString(report.submittedAt) ?? '',
+    answers: answers.map((answer) => {
+      const question = questions.find((item) => item.id === answer.questionId);
+      return {
+        questionId: answer.questionId,
+        questionTitle: question?.title ?? answer.questionId,
+        type: answer.type,
+        answer: answer.answer,
+        extraText: answer.extraText,
+      };
+    }),
+  };
+};
+
 const getAdminStatus = (survey: SurveyRow): string => {
   if (!toBoolean(survey.enable)) {
     return 'disabled';
@@ -616,11 +708,11 @@ const getAdminStatus = (survey: SurveyRow): string => {
   const startAt = toTimeValue(survey.startAt);
   const endAt = toTimeValue(survey.endAt);
 
-  if (startAt && startAt > now) {
+  if (startAt !== null && startAt > now) {
     return 'upcoming';
   }
 
-  if (endAt && endAt < now) {
+  if (endAt !== null && endAt < now) {
     return 'ended';
   }
 
@@ -628,70 +720,87 @@ const getAdminStatus = (survey: SurveyRow): string => {
 };
 
 const normalizeQuestions = (value: unknown): SurveyQuestion[] => {
-  const rawQuestions = parseJsonArray(value);
-  return rawQuestions
-    .map((rawQuestion, index) => normalizeQuestion(rawQuestion, index))
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(normalizeQuestion)
     .filter((question): question is SurveyQuestion => question !== null);
 };
 
 const normalizeQuestion = (value: unknown, index: number): SurveyQuestion | null => {
-  if (!isRecord(value)) {
+  if (typeof value !== 'object' || value === null) {
     return null;
   }
 
-  const type = typeof value['type'] === 'string' && surveyQuestionTypes.includes(value['type'] as SurveyQuestion['type'])
-    ? value['type'] as SurveyQuestion['type']
-    : null;
-  const title = normalizeNullableString(value['title'], 200);
-
-  if (!type || !title) {
+  const record = value as Record<string, unknown>;
+  const type = typeof record['type'] === 'string' && surveyQuestionTypes.includes(record['type'] as SurveyQuestion['type'])
+    ? record['type'] as SurveyQuestion['type']
+    : 'text';
+  const title = normalizeNullableString(record['title'], 200);
+  if (!title) {
     return null;
   }
 
   return {
-    id: normalizeNullableString(value['id'], 80) ?? `question-${index + 1}`,
+    id: normalizeNullableString(record['id'], 100) ?? `question-${index + 1}`,
     title,
     type,
-    required: normalizeBoolean(value['required']),
-    description: normalizeNullableString(value['description'], 1000) ?? undefined,
-    placeholder: normalizeNullableString(value['placeholder'], 200) ?? undefined,
-    data: parseJsonArray(value['data'])
-      .map(normalizeQuestionOption)
-      .filter((option): option is SurveyQuestionOption => option !== null),
+    required: record['required'] !== false,
+    description: normalizeNullableString(record['description'], 1000) ?? undefined,
+    placeholder: normalizeNullableString(record['placeholder'], 200) ?? undefined,
+    data: Array.isArray(record['data'])
+      ? record['data'].map(normalizeQuestionOption).filter((option): option is SurveyQuestionOption => option !== null)
+      : [],
   };
 };
 
 const normalizeQuestionOption = (value: unknown): SurveyQuestionOption | null => {
-  if (!isRecord(value)) {
+  if (typeof value !== 'object' || value === null) {
     return null;
   }
 
-  const title = normalizeNullableString(value['title'], 200);
+  const record = value as Record<string, unknown>;
+  const title = normalizeNullableString(record['title'], 200);
   if (!title) {
     return null;
   }
 
   return {
     title,
-    value: normalizeNullableString(value['value'], 200) ?? undefined,
-    enableText: normalizeBoolean(value['enableText']),
-    group: normalizeNullableString(value['group'], 80) ?? undefined,
-    all: normalizeBoolean(value['all']),
+    value: normalizeNullableString(record['value'], 200) ?? undefined,
+    enableText: toBoolean(record['enableText']),
+    group: normalizeNullableString(record['group'], 100) ?? undefined,
+    all: toBoolean(record['all']),
   };
 };
 
 const normalizeAnswers = (value: unknown): SurveyAnswerPayload[] => {
-  return parseJsonArray(value)
-    .filter(isRecord)
-    .map((answer) => ({
-      questionId: normalizeNullableString(answer['questionId'], 80) ?? '',
-      type: typeof answer['type'] === 'string' && surveyQuestionTypes.includes(answer['type'] as SurveyQuestion['type'])
-        ? answer['type'] as SurveyQuestion['type']
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((answer) => {
+    if (typeof answer !== 'object' || answer === null) {
+      return [];
+    }
+
+    const record = answer as Record<string, unknown>;
+    const questionId = normalizeNullableString(record['questionId'], 100);
+    if (!questionId) {
+      return [];
+    }
+
+    return [{
+      questionId,
+      type: typeof record['type'] === 'string' && surveyQuestionTypes.includes(record['type'] as SurveyQuestion['type'])
+        ? record['type'] as SurveyQuestion['type']
         : 'text',
-      answer: normalizeAnswerValue(answer['answer']),
-      extraText: normalizeStringRecord(answer['extraText']),
-    }))
-    .filter((answer) => answer.questionId.length > 0);
+      answer: normalizeAnswerValue(record['answer']),
+      extraText: normalizeStringRecord(record['extraText']),
+    }];
+  });
 };
 
 const normalizeAnswerValue = (value: unknown): string | string[] => {
@@ -702,50 +811,136 @@ const normalizeAnswerValue = (value: unknown): string | string[] => {
   return typeof value === 'string' ? value : '';
 };
 
-const parseJsonArray = (value: unknown): unknown[] => {
-  if (Array.isArray(value)) {
-    return value;
-  }
+const normalizeCategoryPayload = (
+  payload: SaveSurveyCategoriesRequest,
+): { validation: SurveyValidationResult; categories: SurveyCategoryDto[] } => {
+  const fieldErrors: SurveyFieldError[] = [];
+  const categoriesInput = Array.isArray(payload.categories) ? payload.categories : [];
+  const categories = categoriesInput.map((categoryInput, categoryIndex) => {
+    const record = typeof categoryInput === 'object' && categoryInput !== null
+      ? categoryInput as Record<string, unknown>
+      : {};
+    const name = normalizeNullableString(record['name'], 80);
+    if (!name) {
+      fieldErrors.push({ field: `categories.${categoryIndex}.name`, message: '請輸入大分類名稱' });
+    }
 
-  if (typeof value !== 'string') {
-    return [];
-  }
+    const categoryKey = normalizeNullableString(record['categoryKey'], 36) ?? uuidv4();
+    const childrenInput = Array.isArray(record['children']) ? record['children'] : [];
+    const children = childrenInput.map((childInput, childIndex) => {
+      const childRecord = typeof childInput === 'object' && childInput !== null
+        ? childInput as Record<string, unknown>
+        : {};
+      const childName = normalizeNullableString(childRecord['name'], 80);
+      if (!childName) {
+        fieldErrors.push({ field: `categories.${categoryIndex}.children.${childIndex}.name`, message: '請輸入小分類名稱' });
+      }
 
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (error) {
-    return [];
-  }
+      return {
+        categoryKey: normalizeNullableString(childRecord['categoryKey'], 36) ?? uuidv4(),
+        parentCategoryKey: categoryKey,
+        name: childName ?? '',
+        sortOrder: childIndex,
+      };
+    });
+
+    return {
+      categoryKey,
+      name: name ?? '',
+      sortOrder: categoryIndex,
+      children,
+    };
+  });
+
+  return {
+    validation: { isValid: fieldErrors.length === 0, fieldErrors },
+    categories,
+  };
 };
 
-const normalizeRecord = (value: unknown): Record<string, unknown> | null => {
-  if (isRecord(value)) {
-    return value;
+const toCategoryTree = (rows: SurveyCategoryRow[]): SurveyCategoryDto[] => {
+  const childrenByParent = new Map<string, SurveyCategoryRow[]>();
+  for (const row of rows) {
+    if (row.parentCategoryKey) {
+      childrenByParent.set(row.parentCategoryKey, [...(childrenByParent.get(row.parentCategoryKey) ?? []), row]);
+    }
   }
 
-  if (typeof value !== 'string') {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return isRecord(parsed) ? parsed : null;
-  } catch (error) {
-    return null;
-  }
+  return rows
+    .filter((row) => row.parentCategoryKey === null)
+    .map((row) => ({
+      categoryKey: row.categoryKey,
+      name: row.name,
+      sortOrder: Number(row.sortOrder) || 0,
+      children: (childrenByParent.get(row.categoryKey) ?? []).map((child) => ({
+        categoryKey: child.categoryKey,
+        parentCategoryKey: row.categoryKey,
+        name: child.name,
+        sortOrder: Number(child.sortOrder) || 0,
+      })),
+    }));
 };
 
-const normalizeStringRecord = (value: unknown): Record<string, string> | undefined => {
-  const record = normalizeRecord(value);
-  if (!record) {
-    return undefined;
-  }
+const findUsedCategoryKeys = async (categoryKeys: string[]): Promise<string[]> => {
+  const rows = await AppDataSource.query(
+    `
+      SELECT DISTINCT categoryKey
+      FROM (
+        SELECT primaryCategoryKey AS categoryKey FROM survey WHERE deletedAt IS NULL AND primaryCategoryKey IN (${categoryKeys.map(() => '?').join(',')})
+        UNION
+        SELECT secondaryCategoryKey AS categoryKey FROM survey WHERE deletedAt IS NULL AND secondaryCategoryKey IN (${categoryKeys.map(() => '?').join(',')})
+      ) used_categories
+      WHERE categoryKey IS NOT NULL
+    `,
+    [...categoryKeys, ...categoryKeys],
+  ) as Array<{ categoryKey: string }>;
 
-  const entries = Object.entries(record)
-    .filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].trim().length > 0);
+  return rows.map((row) => row.categoryKey);
+};
 
-  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+const upsertCategory = async (
+  categoryKey: string,
+  parentCategoryKey: string | null,
+  name: string,
+  sortOrder: number,
+): Promise<void> => {
+  await AppDataSource.query(
+    `
+      INSERT INTO survey_category
+        (categoryKey, parentCategoryKey, name, sortOrder, createdAt, updatedAt, deletedAt)
+      VALUES
+        (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL)
+      ON DUPLICATE KEY UPDATE
+        parentCategoryKey = VALUES(parentCategoryKey),
+        name = VALUES(name),
+        sortOrder = VALUES(sortOrder),
+        deletedAt = NULL,
+        updatedAt = CURRENT_TIMESTAMP
+    `,
+    [categoryKey, parentCategoryKey, name, sortOrder],
+  );
+};
+
+const replaceSurveyImageReference = async (
+  surveyKey: string,
+  title: string,
+  assetKey: string | null,
+): Promise<void> => {
+  const references: ProjectAssetReferenceInput[] = assetKey
+    ? [{
+      assetKey,
+      ownerModule: 'surveyManagement',
+      entityType: surveyAssetEntityType,
+      entityKey: surveyKey,
+      entityLabel: title,
+      usageProfileKey: descriptionImageUsageProfileKey,
+      usageRole: 'surveyDescriptionImage',
+      usagePath: 'descriptionImageAssetKey',
+      isBlockingDelete: true,
+    }]
+    : [];
+
+  await new ProjectAssetReferenceRepository().replaceForEntity(surveyAssetEntityType, surveyKey, references);
 };
 
 const normalizeNullableString = (value: unknown, maxLength: number): string | null => {
@@ -753,36 +948,42 @@ const normalizeNullableString = (value: unknown, maxLength: number): string | nu
     return null;
   }
 
-  const normalized = value.trim();
-  return normalized.length > 0 ? normalized.slice(0, maxLength) : null;
-};
-
-const normalizeDateString = (value: unknown): string | null => {
-  const normalized = normalizeNullableString(value, 40);
-  if (!normalized) {
+  const trimmed = value.trim();
+  if (!trimmed) {
     return null;
   }
 
-  const date = new Date(normalized);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 19).replace('T', ' ');
+  return trimmed.slice(0, maxLength);
 };
 
-const normalizeBoolean = (value: unknown): boolean => value === true || value === 1 || value === '1';
+const normalizeDateValue = (value: unknown): string | null => {
+  if (typeof value !== 'string' || !value.trim()) {
+    return null;
+  }
 
-const toBoolean = (value: number | boolean): boolean => value === true || value === 1;
-
-const hasAnswerValue = (value: string | string[]): boolean => Array.isArray(value)
-  ? value.length > 0
-  : value.trim().length > 0;
-
-const isOptionSelected = (answer: string | string[], option: SurveyQuestionOption): boolean => {
-  const value = optionValue(option);
-  return Array.isArray(answer) ? answer.includes(value) : answer === value;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 };
 
-const optionValue = (option: SurveyQuestionOption): string => option.value ?? option.title;
+const normalizeRecord = (value: unknown): Record<string, unknown> | null => {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+};
 
-const toIsoString = (value: Date | string | null): string | null => {
+const normalizeStringRecord = (value: unknown): Record<string, string> | undefined => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter((entry): entry is [string, string] => typeof entry[1] === 'string');
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+};
+
+const toBoolean = (value: unknown): boolean => value === true || value === 1 || value === '1' || value === 'true';
+
+const toIsoString = (value: Date | string | null | undefined): string | null => {
   if (!value) {
     return null;
   }
@@ -797,18 +998,31 @@ const toTimeValue = (value: Date | string | null): number | null => {
   }
 
   const date = value instanceof Date ? value : new Date(value);
-  const time = date.getTime();
-  return Number.isNaN(time) ? null : time;
+  return Number.isNaN(date.getTime()) ? null : date.getTime();
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> => (
-  typeof value === 'object' && value !== null && !Array.isArray(value)
-);
+const isEmptyAnswer = (answer: string | string[]): boolean => {
+  return Array.isArray(answer)
+    ? answer.length === 0
+    : !answer.trim();
+};
 
-const getAffectedRows = (result: { affectedRows?: number } | { affected?: number }): number => {
-  if ('affectedRows' in result && typeof result.affectedRows === 'number') {
-    return result.affectedRows;
+const isOptionSelected = (answer: string | string[], option: SurveyQuestionOption): boolean => {
+  const value = optionValue(option);
+  return Array.isArray(answer) ? answer.includes(value) : answer === value;
+};
+
+const optionValue = (option: SurveyQuestionOption): string => option.value ?? option.title;
+
+const getAffectedRows = (result: unknown): number => {
+  if (Array.isArray(result)) {
+    return getAffectedRows(result[0]);
   }
 
-  return 'affected' in result && typeof result.affected === 'number' ? result.affected : 0;
+  if (typeof result === 'object' && result !== null) {
+    const record = result as { affectedRows?: number; affected?: number };
+    return record.affectedRows ?? record.affected ?? 0;
+  }
+
+  return 0;
 };
