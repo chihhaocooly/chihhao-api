@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
-import { getAllRichmenuList } from '../../functions/richmenu/getAllRichmenuList';
+import { listRichmenus } from '../../functions/richmenu/richmenuService';
 
 export default async function apiGetAllRichmenuList(req: Request, res: Response) {
-    const getAllRichmenuListResponse = await getAllRichmenuList();
-    res.json(getAllRichmenuListResponse);
+    const result = await listRichmenus('published');
+    res.json({ richmenuDtoList: result.items });
 }
