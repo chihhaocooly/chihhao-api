@@ -1,4 +1,5 @@
 import { AppDataSource } from '@chihhaocooly/chihhao-package';
+import axios from 'axios';
 import { randomUUID } from 'crypto';
 import { Readable } from 'stream';
 import { MyError } from '../../@types/my-error';
@@ -215,12 +216,15 @@ export const setDefaultRichmenuByKey = async (richmenuKey: string) => {
     throw new MyError(400, '只有永久啟用圖文選單可設為預設');
   }
 
-  await AppDataSource.query('UPDATE richmenu SET isDefault = 0, updatedAt = CURRENT_TIMESTAMP WHERE isDefault = 1');
-  await AppDataSource.query('UPDATE richmenu SET isDefault = 1, enable = 1, updatedAt = CURRENT_TIMESTAMP WHERE richmenuKey = ?', [richmenuKey]);
+  const lineRichmenuId = item.lineRchmenuId || await createLineRichmenuFromLocalItem(item);
 
-  if (item.lineRchmenuId) {
-    await LineMessageApiService.SetDefaultRichmenu(item.lineRchmenuId);
-  }
+  await LineMessageApiService.SetDefaultRichmenu(lineRichmenuId);
+
+  await AppDataSource.query('UPDATE richmenu SET isDefault = 0, updatedAt = CURRENT_TIMESTAMP WHERE isDefault = 1');
+  await AppDataSource.query(
+    'UPDATE richmenu SET isDefault = 1, enable = 1, lineRchmenuId = ?, updatedAt = CURRENT_TIMESTAMP WHERE richmenuKey = ?',
+    [lineRichmenuId, richmenuKey]
+  );
 
   return await getRichmenuByKey(richmenuKey);
 };
@@ -711,4 +715,115 @@ const detectImageMimeType = (buffer: Buffer): 'image/jpeg' | 'image/png' | null 
   }
 
   return null;
+};
+
+const createLineRichmenuFromLocalItem = async (item: RichmenuDto): Promise<string> => {
+  if (!item.assetKey) {
+    throw new MyError(400, '請先選擇背景圖片素材');
+  }
+
+  const asset = await readProjectAsset(item.assetKey);
+  if (!asset) {
+    throw new MyError(400, '找不到背景圖片素材');
+  }
+
+  const lineSize = chooseLineRichmenuSize(item);
+  const lineRichmenuId = await LineMessageApiService.CreateRichmenu({
+    size: lineSize,
+    selected: item.selected,
+    name: item.name.slice(0, 300),
+    chatBarText: item.chatBarText.slice(0, 14),
+    areas: item.areas.slice(0, 20).map((area, index) => toLineRichmenuArea(area, item, lineSize, index)),
+  });
+
+  try {
+    const image = await buildLineRichmenuImage(asset.publicUrl, lineSize);
+    await LineMessageApiService.SetRichmenuImage(lineRichmenuId, image, 'image/jpeg');
+    return lineRichmenuId;
+  } catch (error) {
+    try {
+      await LineMessageApiService.DeleteRichmenu(lineRichmenuId);
+    } catch (deleteError) {
+      console.error('Delete LINE rich menu after image upload failure failed', deleteError);
+    }
+
+    throw error;
+  }
+};
+
+const chooseLineRichmenuSize = (item: RichmenuDto): { width: number; height: number } => {
+  const ratio = item.width > 0 ? item.height / item.width : 1686 / 2500;
+  return ratio <= 0.45
+    ? { width: 2500, height: 843 }
+    : { width: 2500, height: 1686 };
+};
+
+const toLineRichmenuArea = (
+  area: RichmenuArea,
+  item: RichmenuDto,
+  lineSize: { width: number; height: number },
+  index: number,
+) => {
+  const action = normalizeAreaAction(area);
+  const scaleX = lineSize.width / item.width;
+  const scaleY = lineSize.height / item.height;
+  const x = clampInt(Math.round((Number(area.x) || 0) * scaleX), 0, lineSize.width - 1);
+  const y = clampInt(Math.round((Number(area.y) || 0) * scaleY), 0, lineSize.height - 1);
+  const width = clampInt(Math.round((Number(area.width) || 0) * scaleX), 1, lineSize.width - x);
+  const height = clampInt(Math.round((Number(area.height) || 0) * scaleY), 1, lineSize.height - y);
+
+  if (action.type === 'message') {
+    return {
+      bounds: { x, y, width, height },
+      action: {
+        type: 'message' as const,
+        text: action.text.slice(0, 300),
+      },
+    };
+  }
+
+  if (action.type === 'uri') {
+    return {
+      bounds: { x, y, width, height },
+      action: {
+        type: 'uri' as const,
+        uri: action.uri.slice(0, 1000),
+        label: (action.title || '連結').slice(0, 20),
+      },
+    };
+  }
+
+  throw new MyError(400, `區塊 ${index + 1} 尚未設定 LINE 支援的動作`);
+};
+
+const buildLineRichmenuImage = async (
+  publicUrl: string,
+  lineSize: { width: number; height: number },
+): Promise<Buffer> => {
+  const response = await axios.get<ArrayBuffer>(publicUrl, { responseType: 'arraybuffer' });
+  const source = Buffer.from(response.data);
+  const sharp = await import('sharp');
+  let quality = 90;
+  let output = await sharp.default(source)
+    .resize(lineSize.width, lineSize.height, { fit: 'fill' })
+    .jpeg({ quality, mozjpeg: true })
+    .toBuffer();
+
+  while (output.byteLength > 1024 * 1024 && quality > 50) {
+    quality -= 10;
+    output = await sharp.default(source)
+      .resize(lineSize.width, lineSize.height, { fit: 'fill' })
+      .jpeg({ quality, mozjpeg: true })
+      .toBuffer();
+  }
+
+  if (output.byteLength > 1024 * 1024) {
+    throw new MyError(400, '背景圖片壓縮後仍超過 LINE 圖文選單 1MB 限制');
+  }
+
+  return output;
+};
+
+const clampInt = (value: number, min: number, max: number): number => {
+  return Math.min(Math.max(value, min), max);
 };
