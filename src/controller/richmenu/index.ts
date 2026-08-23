@@ -8,6 +8,7 @@ import apiCreateRichmenu from './apiCreateRichmenu';
 import apiUpdateRichmenu from './apiUpdateRichmenu';
 import apiCopyRichmenu from './apiCopyRichmenu';
 import apiDeleteRichmenu from './apiDeleteRichmenu';
+import apiSyncRichmenus from './apiSyncRichmenus';
 
 
 const richmenuRouter = express.Router();
@@ -20,6 +21,11 @@ richmenuRouter.get('/',
 richmenuRouter.get('/allRichmenuList',
     requireRole(['admin', 'manager', 'viewer']),
     apiGetAllRichmenuList
+);
+
+richmenuRouter.post('/sync',
+    requireRole(['admin', 'manager']),
+    apiSyncRichmenus
 );
 
 richmenuRouter.get('/:richmenuKey',
