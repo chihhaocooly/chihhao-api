@@ -11,9 +11,15 @@ import apiListLineMessages from './apiListLineMessages';
 import apiUpdateLineMessage from './apiUpdateLineMessage';
 import apiUpdateReplySettings from './apiUpdateReplySettings';
 import apiValidateLineMessage from './apiValidateLineMessage';
+import apiValidateSavedLineMessage from './apiValidateSavedLineMessage';
 
 
 const lineMessageRouter = express.Router();
+
+lineMessageRouter.post('/:lineMessageKey/validate',
+    requireRole(['admin', 'manager']),
+    apiValidateSavedLineMessage
+);
 
 lineMessageRouter.get('/allLineMessages',
     requireRole(['admin', 'manager', 'viewer']),
