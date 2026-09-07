@@ -55,11 +55,19 @@ export class LineMemberPushService {
     const client = await this.createClient();
     try {
       client.setRequestOptionOnce({ retryKey: body.retryKey });
-      // validator 已檢查儲存內容；SDK 的 Message union 僅在此邊界收斂。
-      await client.pushMessage(member.lineUserId, validation.normalized.customPayload as unknown as Message);
+      // 素材的 type 與內容分欄儲存；自訂 JSON 才由 payload 自帶 LINE type。
+      const { type, customPayload } = validation.normalized;
+      const message = type === 'json' ? customPayload : { ...customPayload, type };
+      await client.pushMessage(member.lineUserId, message as unknown as Message);
     } catch (error) {
       const status = isRecord(error) ? error.statusCode : undefined;
       if (status === 409 && hasAcceptedRequestId(error)) return { status: 'accepted' };
+      console.error('LINE member push failed', {
+        statusCode: typeof status === 'number' ? status : null,
+        requestId: getRequestId(error),
+      });
+      if (status === 400) throw new MyError(422, 'LINE 拒絕訊息格式，請至訊息管理檢查內容');
+      if (status === 401 || status === 403) throw new MyError(503, 'LINE 推播授權失敗，請檢查站台設定');
       if (status === 429) throw new MyError(429, 'LINE 發送額度不足或請求過於頻繁，請稍後重試');
       throw new MyError(502, 'LINE 推播未能確認受理，請保留此視窗重試；關閉後重新發送可能重複');
     }
@@ -76,4 +84,13 @@ const hasAcceptedRequestId = (error: unknown): boolean => {
   if (!isRecord(response) || !isRecord(response.headers)) return false;
   const requestId = response.headers['x-line-accepted-request-id'];
   return typeof requestId === 'string' && requestId.length > 0;
+};
+
+// 僅記錄 LINE request ID，不記錄 SDK error（可能含 token、訊息及會員資料）。
+const getRequestId = (error: unknown): string | null => {
+  if (!isRecord(error) || !isRecord(error.originalError)) return null;
+  const response = error.originalError.response;
+  if (!isRecord(response) || !isRecord(response.headers)) return null;
+  const value = response.headers['x-line-request-id'];
+  return typeof value === 'string' && /^[a-zA-Z0-9-]{1,128}$/.test(value) ? value : null;
 };

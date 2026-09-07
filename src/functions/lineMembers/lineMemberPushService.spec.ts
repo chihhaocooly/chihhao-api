@@ -24,7 +24,7 @@ describe('LineMemberPushService', () => {
     validateMessage.mockResolvedValue({
       isValid: true, isSendable: true, summary: 'hello', fieldErrors: [],
       normalized: { title: 'hello', type: 'text', templateKey: 'text', keyWords: [],
-        customPayload: { type: 'text', text: 'hello' }, editorPayload: null, editorPayloadVersion: 1 },
+        customPayload: { text: 'hello' }, editorPayload: null, editorPayloadVersion: 1 },
     });
   });
 
@@ -37,6 +37,21 @@ describe('LineMemberPushService', () => {
     expect(pushMessage).toHaveBeenCalledWith('Ustored', { type: 'text', text: 'hello' });
     expect(pushMessage).toHaveBeenCalledTimes(1);
   });
+  it.each([
+    ['image', { originalContentUrl: 'https://example.com/a.png', previewImageUrl: 'https://example.com/a.png' }],
+    ['flex', { altText: '卡片', contents: { type: 'bubble' } }],
+    ['imagemap', { type: 'imagemap', baseUrl: 'https://example.com/map' }],
+    ['json', { type: 'sticker', packageId: '1', stickerId: '1' }],
+  ] as const)('builds LINE payload for %s without changing custom JSON type', async (type, customPayload) => {
+    validateMessage.mockResolvedValue({
+      isValid: true, isSendable: true, summary: '', fieldErrors: [],
+      normalized: { title: '素材', type, templateKey: null, keyWords: [],
+        customPayload, editorPayload: null, editorPayloadVersion: 1 },
+    });
+    await service.pushMessage(id, body);
+    expect(pushMessage).toHaveBeenCalledWith('Ustored', type === 'json' ? customPayload : { ...customPayload, type });
+  });
+
   it.each([null, {}, { ...body, retryKey: 'bad' }, { ...body, lineMessageKey: 1 }])('rejects invalid body %s', async (input) => {
     await expect(service.pushMessage(id, input)).rejects.toMatchObject({ statusCode: 400 });
     expect(findById).not.toHaveBeenCalled();
@@ -67,7 +82,7 @@ describe('LineMemberPushService', () => {
     expect(await service.pushMessage(id, body)).toEqual({ status: 'accepted' });
     expect(pushMessage).toHaveBeenCalledTimes(1);
   });
-  it.each([[409, 502], [429, 429], [500, 502]])('sanitizes LINE %s without automatic retries', async (statusCode, expected) => {
+  it.each([[400, 422], [401, 503], [403, 503], [409, 502], [429, 429], [500, 502]])('sanitizes LINE %s without automatic retries', async (statusCode, expected) => {
     pushMessage.mockRejectedValue({ statusCode, message: 'secret-token' });
     await expect(service.pushMessage(id, body)).rejects.toMatchObject({ statusCode: expected });
     expect(pushMessage).toHaveBeenCalledTimes(1);
