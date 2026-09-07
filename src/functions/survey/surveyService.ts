@@ -1,5 +1,5 @@
 import { AppDataSource, ProjectAssetReferenceRepository, type ProjectAssetReferenceInput } from '@chihhaocooly/chihhao-package';
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, validate as isUuid } from 'uuid';
 import { MyError } from '../../@types/my-error';
 import {
   ListSurveyReportsResult,
@@ -385,6 +385,35 @@ export const deleteSurveyForAdmin = async (surveyKey: string): Promise<boolean> 
   }
 
   return deleted;
+};
+
+export const getSurveyReportForAdmin = async (
+  surveyKey: string,
+  reportKey: string,
+): Promise<SurveyReportDetailDto> => {
+  if (!isUuid(surveyKey) || !isUuid(reportKey)) {
+    throw new MyError(400, '問卷或回覆代碼格式無效');
+  }
+
+  const survey = await findSurvey(surveyKey);
+  if (!survey) {
+    throw new MyError(404, '問卷不存在');
+  }
+
+  const reports = await AppDataSource.query(
+    `
+      SELECT reportKey, surveyKey, lineUserId, displayName, answers, submittedAt
+      FROM survey_report
+      WHERE surveyKey = ? AND reportKey = ?
+      LIMIT 1
+    `,
+    [surveyKey, reportKey],
+  ) as SurveyReportRow[];
+  if (!reports[0]) {
+    throw new MyError(404, '填寫紀錄不存在');
+  }
+
+  return toReportDetailDto(survey, reports[0]);
 };
 
 export const listSurveyReportsForAdmin = async (

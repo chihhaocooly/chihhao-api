@@ -4,6 +4,7 @@ import apiCopySurvey from './apiCopySurvey';
 import apiCreateSurvey from './apiCreateSurvey';
 import apiDeleteSurvey from './apiDeleteSurvey';
 import apiGetSurvey from './apiGetSurvey';
+import apiGetSurveyReport from './apiGetSurveyReport';
 import apiListSurveyCategories from './apiListSurveyCategories';
 import apiListSurveyReports from './apiListSurveyReports';
 import apiListSurveys from './apiListSurveys';
@@ -34,6 +35,12 @@ adminSurveysRouter.put(
   '/settings/categories',
   requireRole(['admin', 'manager']),
   apiSaveSurveyCategories,
+);
+
+adminSurveysRouter.get(
+  '/:surveyKey/reports/:reportKey',
+  requireRole(['admin', 'manager', 'viewer']),
+  apiGetSurveyReport,
 );
 
 adminSurveysRouter.get(
