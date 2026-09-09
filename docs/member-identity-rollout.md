@@ -21,7 +21,8 @@
 
 - 已依使用者授權執行會員 migration；既有帳號缺少獨立 CREATE INDEX 權限，先以現有 ALTER TABLE 權限建立 migration 定義的兩個索引，再重跑 migration。沒有變更帳號權限或刪除資料。
 - 新環境若有相同權限限制，可先以 ALTER TABLE ADD INDEX 建立 `line_member` 的 `idx_line_member_sub_identity(subIdentityId,id)` 與 `survey_report` 的 `idx_survey_report_member_submitted(lineUserId,submittedAt,reportKey)`，再重跑；執行前須檢查索引是否已存在。
-- 預定版本：API `s1.0.58`、後台 `1.0.35`、LIFF `0.1.7`，均透過版本 tag 觸發 CI/CD。Package 維持 `1.0.35`。
+- 已成功部署：API `s1.0.58`、後台 `1.0.35`、LIFF `0.1.7`，均透過版本 tag 觸發 CI/CD。Package 維持 `1.0.35`。
+- CI：[API](https://github.com/chihhaocooly/chihhao-api/actions/runs/34300926371)、[後台](https://github.com/chihhaocooly/chihhao-angular/actions/runs/34301016322)、[LIFF](https://github.com/chihhaocooly/chihhao-liff/actions/runs/34300801163)。API revision `chihhao-api-00050-47p` 承接 100% 流量，健康檢查 200；排程端點未設定，回傳 503。
 - 後台設定與真實 LINE 流程由使用者測試。
 
 ## 操作觸發同步與可選 Cloud Scheduler
