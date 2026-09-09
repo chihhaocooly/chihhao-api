@@ -17,7 +17,8 @@
     "docker:run": "docker run --rm -p 8080:8080 -v ~/.config/gcloud:/etc/gcp-sa $npm_package_config_stageImage:$npm_package_version",
     "docker:push": "docker push $npm_package_config_stageImage:$npm_package_version",
     "deploy:dev": " tsc && docker build -t $npm_package_config_stageImage:$npm_package_version --platform linux/amd64 . && docker push $npm_package_config_stageImage:$npm_package_version && gcloud run deploy chihhao-api --image $npm_package_config_stageImage:$npm_package_version --region asia-east1 --platform managed --allow-unauthenticated",
-    "deploy": "gcloud run deploy chihhao-api --image $npm_package_config_stageImage:$npm_package_version --region asia-east1 --platform managed --allow-unauthenticated"
+    "deploy": "gcloud run deploy chihhao-api --image $npm_package_config_stageImage:$npm_package_version --region asia-east1 --platform managed --allow-unauthenticated",
+    "test:membership": "npm run build && node --test tests/member-flow.cjs"
   },
   "keywords": [],
   "author": "allen@aiii.ai",
@@ -27,7 +28,7 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
-    "@chihhaocooly/chihhao-package": "^1.0.34",
+    "@chihhaocooly/chihhao-package": "^1.0.35",
     "@google-cloud/secret-manager": "^4.1.4",
     "@google-cloud/storage": "^7.21.0",
     "@line/bot-sdk": "7.4.0",
@@ -40,6 +41,7 @@
     "express-async-errors": "^3.1.1",
     "express-validator": "^7.2.0",
     "firebase-admin": "^13.0.1",
+    "google-auth-library": "^8.7.0",
     "helmet": "^5.0.2",
     "lodash": "^4.17.21",
     "multer": "^2.2.0",

@@ -7,7 +7,7 @@ import apiUpdateAdminUserStatus from './apiUpdateAdminUserStatus';
 
 const adminUsersRouter = express.Router();
 
-adminUsersRouter.use(requireRole(['admin']));
+adminUsersRouter.use('/users', requireRole(['admin']));
 adminUsersRouter.get('/users', apiGetAdminUsers);
 adminUsersRouter.post('/users', apiCreateAdminUser);
 adminUsersRouter.patch('/users/:id/role', apiUpdateAdminUserRole);

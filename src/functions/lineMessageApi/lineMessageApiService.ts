@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { Client } from "@line/bot-sdk";
 import { RichMenu } from "@line/bot-sdk/dist/types";
 import { Readable } from "stream";
@@ -32,18 +33,15 @@ export class LineMessageApiService {
     }
 
     static async CreateRichmenu(richMenu: RichMenu): Promise<string> {
-        const client = await this.createClient();
-        return await client.createRichMenu(richMenu);
+        return (await this.menuRequest<{ richMenuId: string }>('post', 'https://api.line.me/v2/bot/richmenu', richMenu)).richMenuId;
     }
 
     static async SetRichmenuImage(lineRichmenuId: string, image: Buffer, contentType: string) {
-        const client = await this.createClient();
-        return await client.setRichMenuImage(lineRichmenuId, image, contentType);
+        return this.menuRequest('post', `https://api-data.line.me/v2/bot/richmenu/${encodeURIComponent(lineRichmenuId)}/content`, image, contentType);
     }
 
     static async DeleteRichmenu(lineRichmenuId: string) {
-        const client = await this.createClient();
-        return await client.deleteRichMenu(lineRichmenuId);
+        return this.menuRequest('delete', `https://api.line.me/v2/bot/richmenu/${encodeURIComponent(lineRichmenuId)}`);
     }
 
     static async GetDefaultRichmenuId(): Promise<string | null> {
@@ -53,6 +51,12 @@ export class LineMessageApiService {
         } catch {
             return null;
         }
+    }
+
+    private static async menuRequest<T>(method: 'post' | 'delete', url: string, data?: unknown, contentType = 'application/json'): Promise<T> {
+        const token = await new SiteLineSettingsService().getMessageApiChannelAccessToken();
+        const result = await axios.request<T>({ method, url, data, timeout: 10000, headers: { Authorization: `Bearer ${token}`, 'Content-Type': contentType } });
+        return result.data;
     }
 
     private static async createClient(): Promise<Client> {

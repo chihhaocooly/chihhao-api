@@ -3,7 +3,7 @@ import { submitSurvey } from '../../functions/survey/surveyService';
 import { SurveySubmitRequest } from '../../functions/survey/surveyTypes';
 
 const apiSubmitSurvey = async (req: Request, res: Response): Promise<void> => {
-  const result = await submitSurvey(req.body as SurveySubmitRequest);
+  const result = await submitSurvey({ ...req.body, userId: req.lineMemberId! } as SurveySubmitRequest);
   res.status(201).json(result);
 };
 

@@ -1,6 +1,7 @@
+import { MemberFieldBinding, MemberFieldDefinition, MemberFieldValueData, MemberMenuSyncStatus } from '@chihhaocooly/chihhao-package';
 import { ProjectAssetDto } from '../projectAsset/projectAssetTypes';
 
-export const surveyQuestionTypes = ['text', 'radio', 'checkbox', 'select'] as const;
+export const surveyQuestionTypes = ['text', 'radio', 'checkbox', 'select', 'member-field'] as const;
 
 export type SurveyQuestionType = typeof surveyQuestionTypes[number];
 
@@ -22,6 +23,8 @@ export interface SurveyQuestion {
   description?: string;
   placeholder?: string;
   data?: SurveyQuestionOption[];
+  memberFieldBinding?: MemberFieldBinding;
+  memberField?: MemberFieldDefinition;
 }
 
 export interface SurveyRuntimeStatusInfo {
@@ -30,6 +33,7 @@ export interface SurveyRuntimeStatusInfo {
 }
 
 export interface SurveyRuntimeDto {
+  version: number;
   id: string;
   title: string;
   descriptionText?: string;
@@ -52,11 +56,13 @@ export interface SurveyRuntimeDto {
 export interface SurveyAnswerPayload {
   questionId: string;
   type: SurveyQuestionType;
-  answer: string | string[];
+  answer: MemberFieldValueData | null;
   extraText?: Record<string, string>;
 }
 
 export interface SurveySubmitRequest {
+  requestId: string;
+  surveyVersion: number;
   surveyId: string;
   userId: string;
   displayName: string;
@@ -64,6 +70,8 @@ export interface SurveySubmitRequest {
 }
 
 export interface SurveySubmitResponse {
+  membershipOutcome?: 'changed' | 'unchanged' | 'skipped-source' | 'none';
+  menuSyncStatus?: MemberMenuSyncStatus | null;
   reportKey: string;
   message?: string;
 }
@@ -82,14 +90,16 @@ export interface SurveyReportDetailDto extends SurveyReportSummaryDto {
 }
 
 export interface SurveyReportAnswerDto {
+  memberField?: MemberFieldDefinition;
   questionId: string;
   questionTitle: string;
   type: SurveyQuestionType;
-  answer: string | string[];
+  answer: MemberFieldValueData | null;
   extraText?: Record<string, string>;
 }
 
 export interface SurveyAdminDto {
+  version: number;
   surveyKey: string;
   title: string;
   primaryCategoryKey: string | null;
@@ -177,6 +187,7 @@ export interface SurveyValidationResult {
 }
 
 export interface SurveyRow {
+  version: number;
   surveyKey: string;
   title: string;
   primaryCategoryKey: string | null;
@@ -202,6 +213,7 @@ export interface SurveyRow {
 }
 
 export interface SurveyReportRow {
+  snapshot?: unknown;
   reportKey: string;
   surveyKey: string;
   lineUserId: string;

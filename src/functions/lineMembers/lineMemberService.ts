@@ -1,3 +1,5 @@
+import { MemberMenuSyncRepository } from '@chihhaocooly/chihhao-package';
+import { MemberProfileService } from '../membership/memberProfileService';
 import {
   GetLineMemberResponse,
   LineMemberFriendStatus,
@@ -117,6 +119,8 @@ export class LineMemberService {
     if (event.type === 'follow') {
       await this.repository.markFollowed(lineUserId, occurredAt);
       await this.syncProfile(lineUserId);
+      const member = await this.repository.findByLineUserId(lineUserId);
+      if (member && (member.subIdentityId || await new MemberMenuSyncRepository().find(member.id))) await new MemberProfileService().retry(member.id);
       return;
     }
 

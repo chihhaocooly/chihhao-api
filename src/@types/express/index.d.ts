@@ -14,6 +14,7 @@ declare global {
     interface Request {
       authContext?: AuthContext;
       rawBody?: Buffer;
+      lineMemberId?: string;
     }
   }
 }

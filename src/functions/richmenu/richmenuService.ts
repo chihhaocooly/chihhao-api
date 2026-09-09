@@ -1,4 +1,5 @@
-import { AppDataSource } from '@chihhaocooly/chihhao-package';
+import { memberTransaction } from '../membership/memberTransaction';
+import { AppDataSource, MemberConfigurationRepository } from '@chihhaocooly/chihhao-package';
 import axios from 'axios';
 import { randomUUID } from 'crypto';
 import { Readable } from 'stream';
@@ -130,11 +131,13 @@ export const updateRichmenu = async (richmenuKey: string, payload: SaveRichmenuR
   }
 
   const normalized = normalizeSavePayload(payload);
-  await AppDataSource.query(
+  await memberTransaction(async manager => {
+    if ((await new MemberConfigurationRepository(manager).findRichmenuReferences(richmenuKey)).length) throw new MyError(409, '此選單已綁定會員身份，請複製後再修改');
+    await manager.query(
     `UPDATE richmenu
      SET areas = ?, queryListKeywords = ?, width = ?, height = ?, chatBarText = ?, selected = ?,
        enable = ?, type = ?, status = ?, name = ?, imageUrl = ?, assetKey = ?, startDateTime = ?,
-       endDateTime = ?, updatedAt = CURRENT_TIMESTAMP
+       endDateTime = ?, lineRchmenuId = '', updatedAt = CURRENT_TIMESTAMP
      WHERE richmenuKey = ?`,
     [
       JSON.stringify(normalized.areas),
@@ -154,6 +157,8 @@ export const updateRichmenu = async (richmenuKey: string, payload: SaveRichmenuR
       richmenuKey,
     ]
   );
+
+  });
 
   await syncRichmenuAssetReference(richmenuKey, normalized);
   const item = await getRichmenuByKey(richmenuKey);
@@ -197,7 +202,10 @@ export const deleteRichmenu = async (richmenuKey: string) => {
     throw new MyError(400, '預設圖文選單不可刪除');
   }
 
-  await AppDataSource.query('DELETE FROM richmenu WHERE richmenuKey = ?', [richmenuKey]);
+  await memberTransaction(async manager => {
+    if ((await new MemberConfigurationRepository(manager).findRichmenuReferences(richmenuKey)).length) throw new MyError(409, '此選單仍被會員身份引用');
+    await manager.query('DELETE FROM richmenu WHERE richmenuKey = ?', [richmenuKey]);
+  });
   await deleteProjectAssetReferencesForEntity(richmenuEntityType, richmenuKey);
 };
 
@@ -744,7 +752,7 @@ const createLineRichmenuFromLocalItem = async (item: RichmenuDto): Promise<strin
     try {
       await LineMessageApiService.DeleteRichmenu(lineRichmenuId);
     } catch (deleteError) {
-      console.error('Delete LINE rich menu after image upload failure failed', deleteError);
+      console.error('Delete LINE rich menu after image upload failure failed');
     }
 
     throw error;
@@ -800,7 +808,7 @@ const buildLineRichmenuImage = async (
   publicUrl: string,
   lineSize: { width: number; height: number },
 ): Promise<Buffer> => {
-  const response = await axios.get<ArrayBuffer>(publicUrl, { responseType: 'arraybuffer' });
+  const response = await axios.get<ArrayBuffer>(publicUrl, { responseType: 'arraybuffer', timeout: 10000, maxContentLength: 20 * 1024 * 1024 });
   const source = Buffer.from(response.data);
   const sharp = await import('sharp');
   let quality = 90;
@@ -826,4 +834,21 @@ const buildLineRichmenuImage = async (
 
 const clampInt = (value: number, min: number, max: number): number => {
   return Math.min(Math.max(value, min), max);
+};
+
+// 發布可共用的 LINE 選單，不改動 OA 預設選單。
+export const materializeMemberRichmenu = async (richmenuKey: string): Promise<string> => {
+  const item = await getRichmenuByKey(richmenuKey);
+  if (!item || item.type !== 'general' || item.status !== 'published' || !item.enable) throw new MyError(400, '會員選單已失效');
+  if (item.lineRchmenuId) return item.lineRchmenuId;
+  const created = await createLineRichmenuFromLocalItem(item);
+  const result = await AppDataSource.query(
+    "UPDATE richmenu SET lineRchmenuId = ? WHERE richmenuKey = ? AND (lineRchmenuId IS NULL OR lineRchmenuId = '')",
+    [created, richmenuKey]
+  ) as { affectedRows: number };
+  if (result.affectedRows === 1) return created;
+  await LineMessageApiService.DeleteRichmenu(created);
+  const current = await getRichmenuByKey(richmenuKey);
+  if (!current?.lineRchmenuId) throw new MyError(400, '會員選單已失效');
+  return current.lineRchmenuId;
 };

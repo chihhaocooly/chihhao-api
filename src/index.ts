@@ -18,6 +18,8 @@ import projectAssetsRouter from './controller/projectAssets';
 import siteSettingsRouter from './controller/siteSettings';
 import lineMembersRouter from './controller/lineMembers';
 import surveyRouter from './controller/survey';
+import memberInternalRouter from './controller/membership/internal';
+import membershipRouter from './controller/membership';
 import lineAuthRouter from './controller/lineAuth';
 
 const app = express();
@@ -64,9 +66,11 @@ const port = process.env.PORT || 8080;
     app.use('/line-auth-login', lineAuthRouter);
     app.use('/survey', surveyRouter);
 
+    app.use('/internal', memberInternalRouter);
     app.use(auth);
     app.use('/auth', authRouter);
     app.use('/admin', adminUsersRouter);
+    app.use('/admin', membershipRouter);
     app.use('/admin/surveys', adminSurveysRouter);
     app.use('/admin/site-settings', siteSettingsRouter);
     app.use('/assets', projectAssetsRouter);

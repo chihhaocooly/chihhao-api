@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { ListLineMembersRequest } from '@chihhaocooly/chihhao-package';
-import { LineMemberService } from '../../functions/lineMembers';
+import { listMembersWithIdentity } from '../../functions/membership/memberListService';
 
 const apiListLineMembers = async (req: Request, res: Response): Promise<void> => {
   const query: ListLineMembersRequest = {
@@ -14,7 +14,7 @@ const apiListLineMembers = async (req: Request, res: Response): Promise<void> =>
     direction: typeof req.query.direction === 'string' ? req.query.direction as ListLineMembersRequest['direction'] : undefined,
   };
 
-  res.json(await new LineMemberService().listMembers(query));
+  res.json(await listMembersWithIdentity({ ...query, identityId: typeof req.query.identityId === 'string' ? req.query.identityId : undefined, subIdentityId: typeof req.query.subIdentityId === 'string' ? req.query.subIdentityId : undefined }));
 };
 
 export default apiListLineMembers;

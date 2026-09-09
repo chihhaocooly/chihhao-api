@@ -1,3 +1,7 @@
+import { MemberDataRepository, MemberConfigurationRepository, MemberFieldValueData } from '@chihhaocooly/chihhao-package';
+import { attachMemberFields, submitMemberSurvey } from '../membership/memberSurveyService';
+import { memberTransaction } from '../membership/memberTransaction';
+import { objectInput, textInput } from '../membership/memberInput';
 import { AppDataSource, ProjectAssetReferenceRepository, type ProjectAssetReferenceInput } from '@chihhaocooly/chihhao-package';
 import { v4 as uuidv4, validate as isUuid } from 'uuid';
 import { MyError } from '../../@types/my-error';
@@ -18,8 +22,6 @@ import {
   SurveyRow,
   SurveyRuntimeDto,
   SurveyRuntimeStatusInfo,
-  SurveySubmitRequest,
-  SurveySubmitResponse,
   SurveyValidationResult,
   surveyQuestionTypes,
 } from './surveyTypes';
@@ -41,6 +43,7 @@ export const getSurveyRuntime = async (surveyId: string, userId: string): Promis
 
   return {
     id: survey.surveyKey,
+    version: survey.version,
     title: survey.title,
     descriptionText: survey.descriptionText ?? undefined,
     descriptionImage: survey.descriptionImage ?? undefined,
@@ -56,50 +59,11 @@ export const getSurveyRuntime = async (surveyId: string, userId: string): Promis
     hasSubmitted,
     canViewReports: toBoolean(survey.repeatable) && toBoolean(survey.showRepeatableRecords),
     statusInfo,
-    questions: normalizeQuestions(survey.questions),
+    questions: await attachMemberFields(normalizeQuestions(survey.questions)),
   };
 };
 
-export const submitSurvey = async (request: SurveySubmitRequest): Promise<SurveySubmitResponse> => {
-  const survey = await findSurvey(request.surveyId);
-  if (!survey) {
-    throw new MyError(404, '問卷不存在');
-  }
-
-  const hasSubmitted = await hasUserSubmitted(survey.surveyKey, request.userId);
-  const statusInfo = resolveRuntimeStatus(survey, hasSubmitted);
-  if (statusInfo) {
-    throw new MyError(400, statusInfo.message);
-  }
-
-  const questions = normalizeQuestions(survey.questions);
-  const validation = validateAnswers(questions, request.answers);
-  if (!validation.isValid) {
-    throw new MyError(400, validation.fieldErrors[0]?.message ?? '問卷答案不完整');
-  }
-
-  const reportKey = uuidv4();
-  await AppDataSource.query(
-    `
-      INSERT INTO survey_report
-        (reportKey, surveyKey, lineUserId, displayName, answers, submittedAt)
-      VALUES
-        (?, ?, ?, ?, CAST(? AS JSON), CURRENT_TIMESTAMP)
-    `,
-    [
-      reportKey,
-      survey.surveyKey,
-      request.userId,
-      normalizeNullableString(request.displayName, 120),
-      JSON.stringify(request.answers),
-    ],
-  );
-
-  return {
-    reportKey,
-    message: survey.finishText ?? undefined,
-  };
-};
+export const submitSurvey = submitMemberSurvey;
 
 export const listMySurveyReports = async (
   surveyId: string,
@@ -116,7 +80,7 @@ export const listMySurveyReports = async (
 
   const reports = await AppDataSource.query(
     `
-      SELECT reportKey, surveyKey, lineUserId, displayName, answers, submittedAt
+      SELECT reportKey, surveyKey, lineUserId, displayName, answers, snapshot, submittedAt
       FROM survey_report
       WHERE surveyKey = ? AND lineUserId = ?
       ORDER BY submittedAt DESC
@@ -143,7 +107,7 @@ export const getMySurveyReport = async (
 
   const reports = await AppDataSource.query(
     `
-      SELECT reportKey, surveyKey, lineUserId, displayName, answers, submittedAt
+      SELECT reportKey, surveyKey, lineUserId, displayName, answers, snapshot, submittedAt
       FROM survey_report
       WHERE reportKey = ? AND surveyKey = ? AND lineUserId = ?
       LIMIT 1
@@ -244,7 +208,9 @@ export const createSurveyForAdmin = async (payload: SaveSurveyRequest): Promise<
   }
 
   const surveyKey = uuidv4();
-  await AppDataSource.query(
+  await memberTransaction(async manager => {
+    await attachMemberFields(normalized.value!.questions, manager);
+    await manager.query(
     `
       INSERT INTO survey
         (
@@ -258,26 +224,27 @@ export const createSurveyForAdmin = async (payload: SaveSurveyRequest): Promise<
     `,
     [
       surveyKey,
-      normalized.value.title,
-      normalized.value.primaryCategoryKey,
-      normalized.value.secondaryCategoryKey,
-      normalized.value.enable ? 1 : 0,
-      normalized.value.startAt,
-      normalized.value.endAt,
-      normalized.value.repeatable ? 1 : 0,
-      normalized.value.showRepeatableRecords ? 1 : 0,
-      normalized.value.descriptionText,
-      normalized.value.descriptionImageAssetKey,
-      normalized.value.relatedWebsiteUrl,
-      normalized.value.privacyPolicy,
-      normalized.value.finishText,
-      normalized.value.finishSendMessage ? 1 : 0,
-      JSON.stringify(normalized.value.questions),
-      JSON.stringify(normalized.value.settings ?? null),
+      normalized.value!.title,
+      normalized.value!.primaryCategoryKey,
+      normalized.value!.secondaryCategoryKey,
+      normalized.value!.enable ? 1 : 0,
+      normalized.value!.startAt,
+      normalized.value!.endAt,
+      normalized.value!.repeatable ? 1 : 0,
+      normalized.value!.showRepeatableRecords ? 1 : 0,
+      normalized.value!.descriptionText,
+      normalized.value!.descriptionImageAssetKey,
+      normalized.value!.relatedWebsiteUrl,
+      normalized.value!.privacyPolicy,
+      normalized.value!.finishText,
+      normalized.value!.finishSendMessage ? 1 : 0,
+      JSON.stringify(normalized.value!.questions),
+      JSON.stringify(normalized.value!.settings ?? null),
     ],
   );
+  });
 
-  await replaceSurveyImageReference(surveyKey, normalized.value.title, normalized.value.descriptionImageAssetKey);
+  await replaceSurveyImageReference(surveyKey, normalized.value!.title, normalized.value!.descriptionImageAssetKey);
 
   return {
     validation: normalized.validation,
@@ -302,7 +269,13 @@ export const updateSurveyForAdmin = async (
     return { validation: normalized.validation, item: null };
   }
 
-  await AppDataSource.query(
+  await memberTransaction(async manager => {
+    const locked = await new MemberDataRepository(manager).lockSurvey(surveyKey);
+    if (locked.version !== current.version) throw new MyError(409, '問卷已更新，請重新載入');
+    await attachMemberFields(normalized.value!.questions, manager);
+    const config = new MemberConfigurationRepository(manager);
+    if (!normalized.value!.enable && (await config.getSettings())?.defaultSurveyKey === surveyKey) throw new MyError(409, '請先更換預設會員問卷');
+    await manager.query(
     `
       UPDATE survey
       SET
@@ -322,31 +295,33 @@ export const updateSurveyForAdmin = async (
         finishSendMessage = ?,
         questions = CAST(? AS JSON),
         settings = CAST(? AS JSON),
+        version = version + 1,
         updatedAt = CURRENT_TIMESTAMP
       WHERE surveyKey = ? AND deletedAt IS NULL
     `,
     [
-      normalized.value.title,
-      normalized.value.primaryCategoryKey,
-      normalized.value.secondaryCategoryKey,
-      normalized.value.enable ? 1 : 0,
-      normalized.value.startAt,
-      normalized.value.endAt,
-      normalized.value.repeatable ? 1 : 0,
-      normalized.value.showRepeatableRecords ? 1 : 0,
-      normalized.value.descriptionText,
-      normalized.value.descriptionImageAssetKey,
-      normalized.value.relatedWebsiteUrl,
-      normalized.value.privacyPolicy,
-      normalized.value.finishText,
-      normalized.value.finishSendMessage ? 1 : 0,
-      JSON.stringify(normalized.value.questions),
-      JSON.stringify(normalized.value.settings ?? null),
+      normalized.value!.title,
+      normalized.value!.primaryCategoryKey,
+      normalized.value!.secondaryCategoryKey,
+      normalized.value!.enable ? 1 : 0,
+      normalized.value!.startAt,
+      normalized.value!.endAt,
+      normalized.value!.repeatable ? 1 : 0,
+      normalized.value!.showRepeatableRecords ? 1 : 0,
+      normalized.value!.descriptionText,
+      normalized.value!.descriptionImageAssetKey,
+      normalized.value!.relatedWebsiteUrl,
+      normalized.value!.privacyPolicy,
+      normalized.value!.finishText,
+      normalized.value!.finishSendMessage ? 1 : 0,
+      JSON.stringify(normalized.value!.questions),
+      JSON.stringify(normalized.value!.settings ?? null),
       surveyKey,
     ],
   );
+  });
 
-  await replaceSurveyImageReference(surveyKey, normalized.value.title, normalized.value.descriptionImageAssetKey);
+  await replaceSurveyImageReference(surveyKey, normalized.value!.title, normalized.value!.descriptionImageAssetKey);
 
   return {
     validation: normalized.validation,
@@ -370,14 +345,19 @@ export const copySurveyForAdmin = async (surveyKey: string): Promise<SurveyAdmin
 };
 
 export const deleteSurveyForAdmin = async (surveyKey: string): Promise<boolean> => {
-  const result = await AppDataSource.query(
+  const result = await memberTransaction(async manager => {
+    await new MemberDataRepository(manager).lockSurvey(surveyKey);
+    const config = new MemberConfigurationRepository(manager);
+    if (await config.findForm(surveyKey) || (await config.getSettings())?.defaultSurveyKey === surveyKey) throw new MyError(409, '請先移除會員問卷設定');
+    return manager.query(
     `
       UPDATE survey
       SET deletedAt = CURRENT_TIMESTAMP, updatedAt = CURRENT_TIMESTAMP
       WHERE surveyKey = ? AND deletedAt IS NULL
     `,
     [surveyKey],
-  ) as { affectedRows?: number } | { affected?: number };
+  );
+  });
 
   const deleted = getAffectedRows(result) > 0;
   if (deleted) {
@@ -402,7 +382,7 @@ export const getSurveyReportForAdmin = async (
 
   const reports = await AppDataSource.query(
     `
-      SELECT reportKey, surveyKey, lineUserId, displayName, answers, submittedAt
+      SELECT reportKey, surveyKey, lineUserId, displayName, answers, snapshot, submittedAt
       FROM survey_report
       WHERE surveyKey = ? AND reportKey = ?
       LIMIT 1
@@ -429,7 +409,7 @@ export const listSurveyReportsForAdmin = async (
   const pageSize = Math.min(Math.max(Number(options.pageSize ?? defaultPageSize) || defaultPageSize, 1), 100);
   const reports = await AppDataSource.query(
     `
-      SELECT reportKey, surveyKey, lineUserId, displayName, answers, submittedAt
+      SELECT reportKey, surveyKey, lineUserId, displayName, answers, snapshot, submittedAt
       FROM survey_report
       WHERE surveyKey = ?
       ORDER BY submittedAt DESC
@@ -585,32 +565,6 @@ const resolveRuntimeStatus = (survey: SurveyRow, hasSubmitted: boolean): SurveyR
   return undefined;
 };
 
-const validateAnswers = (questions: SurveyQuestion[], answers: SurveyAnswerPayload[]): SurveyValidationResult => {
-  const fieldErrors: SurveyFieldError[] = [];
-  const answerMap = new Map(answers.map((answer) => [answer.questionId, answer]));
-
-  for (const question of questions) {
-    const answer = answerMap.get(question.id);
-    if (!question.required) {
-      continue;
-    }
-
-    if (!answer || isEmptyAnswer(answer.answer)) {
-      fieldErrors.push({ field: question.id, message: `請填寫「${question.title}」` });
-      continue;
-    }
-
-    const missingExtraText = (question.data ?? []).some((option) => (
-      option.enableText && isOptionSelected(answer.answer, option) && !answer.extraText?.[optionValue(option)]?.trim()
-    ));
-    if (missingExtraText) {
-      fieldErrors.push({ field: question.id, message: `請補充「${question.title}」的文字說明` });
-    }
-  }
-
-  return { isValid: fieldErrors.length === 0, fieldErrors };
-};
-
 interface NormalizedSurveyValue {
   title: string;
   primaryCategoryKey: string | null;
@@ -676,6 +630,7 @@ const normalizeSavePayload = (
 };
 
 const toAdminDto = (survey: SurveyRow, buildFillUrl: SurveyFillUrlBuilder | null = null): SurveyAdminDto => ({
+  version: survey.version,
   surveyKey: survey.surveyKey,
   title: survey.title,
   primaryCategoryKey: survey.primaryCategoryKey,
@@ -732,13 +687,15 @@ const adminDtoToSurveyRow = (survey: SurveyAdminDto): SurveyRow => ({
 });
 
 const toReportDetailDto = (survey: SurveyRow, report: SurveyReportRow): SurveyReportDetailDto => {
-  const questions = normalizeQuestions(survey.questions);
+  const snapshot = normalizeRecord(report.snapshot);
+  const questions = normalizeQuestions(snapshot?.questions ?? survey.questions);
+  const snapshotQuestions = Array.isArray(snapshot?.questions) ? snapshot.questions as SurveyQuestion[] : [];
   const answers = normalizeAnswers(report.answers);
 
   return {
     reportKey: report.reportKey,
     surveyId: survey.surveyKey,
-    surveyTitle: survey.title,
+    surveyTitle: typeof snapshot?.surveyTitle === 'string' ? snapshot.surveyTitle : survey.title,
     displayName: report.displayName,
     lineUserId: report.lineUserId,
     submittedAt: toIsoString(report.submittedAt) ?? '',
@@ -747,6 +704,7 @@ const toReportDetailDto = (survey: SurveyRow, report: SurveyReportRow): SurveyRe
       return {
         questionId: answer.questionId,
         questionTitle: question?.title ?? answer.questionId,
+        memberField: snapshotQuestions.find(item => item.id === answer.questionId)?.memberField,
         type: answer.type,
         answer: answer.answer,
         extraText: answer.extraText,
@@ -804,6 +762,11 @@ const normalizeQuestion = (value: unknown, index: number): SurveyQuestion | null
     title,
     type,
     required: record['required'] !== false,
+    ...(record['memberFieldBinding'] ? { memberFieldBinding: (() => {
+      const binding = objectInput(record['memberFieldBinding']);
+      if (!['overwrite', 'fill-empty'].includes(String(binding.updateMode))) throw new MyError(400, '欄位更新模式不正確');
+      return { fieldId: textInput(binding.fieldId, '會員欄位代碼', 80), updateMode: binding.updateMode as 'overwrite' | 'fill-empty' };
+    })() } : {}),
     description: normalizeNullableString(record['description'], 1000) ?? undefined,
     placeholder: normalizeNullableString(record['placeholder'], 200) ?? undefined,
     data: Array.isArray(record['data'])
@@ -853,7 +816,7 @@ const normalizeAnswers = (value: unknown): SurveyAnswerPayload[] => {
       type: typeof record['type'] === 'string' && surveyQuestionTypes.includes(record['type'] as SurveyQuestion['type'])
         ? record['type'] as SurveyQuestion['type']
         : 'text',
-      answer: normalizeAnswerValue(record['answer']),
+      answer: record['type'] === 'member-field' ? record['answer'] as MemberFieldValueData | null : normalizeAnswerValue(record['answer']),
       extraText: normalizeStringRecord(record['extraText']),
     }];
   });
@@ -1060,19 +1023,6 @@ const toTimeValue = (value: Date | string | null): number | null => {
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.getTime();
 };
-
-const isEmptyAnswer = (answer: string | string[]): boolean => {
-  return Array.isArray(answer)
-    ? answer.length === 0
-    : !answer.trim();
-};
-
-const isOptionSelected = (answer: string | string[], option: SurveyQuestionOption): boolean => {
-  const value = optionValue(option);
-  return Array.isArray(answer) ? answer.includes(value) : answer === value;
-};
-
-const optionValue = (option: SurveyQuestionOption): string => option.value ?? option.title;
 
 const getAffectedRows = (result: unknown): number => {
   if (Array.isArray(result)) {

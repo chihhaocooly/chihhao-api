@@ -6,6 +6,7 @@ describe('LineMemberService', () => {
   const repository = {
     findList: jest.fn(),
     findById: jest.fn(),
+    findByLineUserId: jest.fn().mockResolvedValue(null),
     hasWebhookEvent: jest.fn(),
     createWebhookEvent: jest.fn(),
     markFollowed: jest.fn(),

@@ -7,7 +7,7 @@ const apiGetMySurveyReport = async (req: Request, res: Response): Promise<void> 
     : typeof req.query.id === 'string'
       ? req.query.id
       : '';
-  const userId = typeof req.query.userId === 'string' ? req.query.userId : '';
+  const userId = req.lineMemberId!;
 
   const result = await getMySurveyReport(surveyId, userId, req.params.reportKey);
   res.json(result);
