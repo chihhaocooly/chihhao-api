@@ -31,9 +31,13 @@ const processMemberMenu = async (memberId: string): Promise<number> => {
   let processed = 0;
   for (let attempt = 0; attempt < MAX_GENERATIONS_PER_REQUEST; attempt++) {
     const queued = await repository.find(memberId);
-    if (!queued || queued.status !== 'pending' ||
-        (queued.leaseUntil && new Date(queued.leaseUntil).getTime() > Date.now()) ||
-        (queued.nextAttemptAt && new Date(queued.nextAttemptAt).getTime() > Date.now())) break;
+    if (
+      !queued ||
+      queued.status !== 'pending' ||
+      (queued.leaseUntil && new Date(queued.leaseUntil).getTime() > Date.now()) ||
+      (queued.nextAttemptAt && new Date(queued.nextAttemptAt).getTime() > Date.now())
+    )
+      break;
     // 圖片發布在取得 lease 前完成，避免圖片處理占用個人綁定的時限。
     let menuId: string | null = null;
     let preparationError: unknown;
@@ -104,17 +108,22 @@ const processBatch = async (memberIds: string[]): Promise<{ processed: number }>
 export const processMemberMenus = async (): Promise<{ processed: number }> =>
   processBatch(await new MemberMenuSyncRepository().listDue(MAX_BATCH_SIZE));
 
-export const trySyncSubIdentityMenus = async (subIdentityId: string): Promise<void> => {
+export const trySyncSubIdentityMenus = async (subIdentityId: string): Promise<void> =>
+  trySyncIdentityGroupMenus([subIdentityId]);
+
+export const trySyncIdentityGroupMenus = async (subIdentityIds: string[]): Promise<void> => {
+  if (!subIdentityIds.length) return;
   try {
-    const rows = await AppDataSource.manager.query(
+    const rows = (await AppDataSource.manager.query(
       `SELECT sync.memberId FROM member_menu_sync sync
        INNER JOIN line_member member ON member.id = sync.memberId
-       WHERE member.subIdentityId = ? AND sync.status = 'pending'
+       WHERE member.subIdentityId IN (?) AND sync.status = 'pending'
        AND (sync.nextAttemptAt IS NULL OR sync.nextAttemptAt <= UTC_TIMESTAMP(6))
        AND (sync.leaseUntil IS NULL OR sync.leaseUntil <= UTC_TIMESTAMP(6))
-       ORDER BY sync.memberId LIMIT ?`, [subIdentityId, MAX_BATCH_SIZE]
-    ) as { memberId: string }[];
-    await processBatch(rows.map(row => row.memberId));
+       ORDER BY sync.memberId LIMIT ?`,
+      [subIdentityIds, MAX_BATCH_SIZE]
+    )) as { memberId: string }[];
+    await processBatch(rows.map((row) => row.memberId));
   } catch {
     console.warn('子身份選單批次同步未完成，保留待辦供重試');
   }

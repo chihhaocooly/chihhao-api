@@ -73,6 +73,29 @@ export const parseField = (input: unknown, current: MemberField): MemberField =>
     throw new MyError(400, '字數上限至少為 1');
   if (typeof validation.min === 'number' && typeof validation.max === 'number' && validation.min > validation.max)
     throw new MyError(400, '最小值不可大於最大值');
+  const isChoice = ['single-select', 'multi-select'].includes(type);
+  if (isChoice && booleanInput(data.isEnabled) && !options.some((option) => option.isEnabled))
+    throw new MyError(400, '啟用欄位至少需要一個啟用選項');
+  if (!isChoice && options.length) throw new MyError(400, '此欄位類型不使用選項');
+  const allowedRules =
+    type === 'number'
+      ? ['min', 'max']
+      : type === 'date'
+      ? ['disallowFuture']
+      : ['text', 'textarea', 'mobile', 'email'].includes(type)
+      ? ['maxLength']
+      : [];
+  if (
+    Object.keys(validation).some(
+      (key) =>
+        !allowedRules.includes(key) &&
+        (type !== current.type ||
+          validation[key as keyof typeof validation] !== current.validation[key as keyof typeof validation])
+    )
+  )
+    throw new MyError(400, '驗證規則不適用於此欄位類型');
+  if (current.presetKey === 'birthday' && validation.disallowFuture !== true)
+    throw new MyError(400, '生日必須保留禁止未來日期規則');
   return Object.assign(new MemberField(), current, {
     label: textInput(data.label, '欄位名稱'),
     type,

@@ -25,6 +25,21 @@ describe('會員設定輸入與台灣資料', () => {
     expect(() => parseField({ type: 'number' }, Object.assign(field(), { presetKey: 'gender' }))).toThrow('預設欄位');
     expect(() => parseField({ validation: { script: 'x' } }, field())).toThrow('驗證規則');
   });
+  test('不新增不適用規則，但只改名稱仍保留舊版規則', () => {
+    expect(() => parseField({ validation: { maxLength: 100 } }, field())).toThrow('不適用');
+    const legacy = Object.assign(field(), { validation: { maxLength: 100 } });
+    expect(parseField({ label: '新名稱' }, legacy).validation).toEqual({ maxLength: 100 });
+    expect(() => parseField({ validation: { maxLength: 200 } }, legacy)).toThrow('不適用');
+    expect(() => parseField({ options: [{ id: 'apple', label: '蘋果', isEnabled: false }] }, field())).toThrow(
+      '啟用選項'
+    );
+    expect(() =>
+      parseField(
+        { validation: { disallowFuture: false } },
+        Object.assign(field(), { presetKey: 'birthday', type: 'date', options: [] })
+      )
+    ).toThrow('生日');
+  });
   test('防重送雜湊忽略物件 key 順序，但保留值與陣列順序', () => {
     expect(requestHash({ a: 1, b: { c: 2, d: false } })).toBe(requestHash({ b: { d: false, c: 2 }, a: 1 }));
     expect(requestHash([1, 2])).not.toBe(requestHash([2, 1]));

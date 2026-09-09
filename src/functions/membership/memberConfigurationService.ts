@@ -1,13 +1,11 @@
 import { randomUUID } from 'crypto';
 import {
-  AppDataSource,
   MemberConfigurationRepository,
   MemberDataRepository,
   MemberIdentity,
   MemberSubIdentity,
   MemberField,
   MemberForm,
-  MemberMenuSyncRepository,
   Survey,
 } from '@chihhaocooly/chihhao-package';
 import { EntityManager } from 'typeorm';
@@ -15,6 +13,11 @@ import { MyError } from '../../@types/my-error';
 import { booleanInput, integerInput, nullableId, objectInput, parseField, textInput } from './memberInput';
 import { trySyncSubIdentityMenus } from './memberMenuWorker';
 import { memberTransaction } from './memberTransaction';
+import { readFields, readFieldEditing, readIdentities } from './memberSettingsRead';
+import { assertCanDeleteSub, assertCanDisable, saveSubAndQueue, validateMemberMenu } from './memberIdentityRules';
+import { allowedSettingsInput } from './memberSettingsInput';
+import { MemberSettingsError } from '../../@types/member-settings-error';
+export { validateMemberMenu } from './memberIdentityRules';
 
 export const requireSubIdentity = async (manager: EntityManager, id: string): Promise<MemberSubIdentity> => {
   const repository = new MemberConfigurationRepository(manager);
@@ -25,48 +28,19 @@ export const requireSubIdentity = async (manager: EntityManager, id: string): Pr
   return sub;
 };
 
-export const validateMemberMenu = async (manager: EntityManager, key: string | null): Promise<void> => {
-  if (key === null) return;
-  const rows = (await manager.query(
-    'SELECT status, type, enable, imageUrl, assetKey, lineRchmenuId FROM richmenu WHERE richmenuKey = ? FOR UPDATE',
-    [key]
-  )) as Array<{ status: string; type: string; enable: boolean; imageUrl: string; assetKey: string; lineRchmenuId: string }>;
-  const menu = rows[0];
-  if (
-    !menu ||
-    menu.status !== 'published' ||
-    !menu.lineRchmenuId ||
-    menu.type !== 'general' ||
-    !menu.enable ||
-    (!menu.imageUrl && !menu.assetKey)
-  ) {
-    throw new MyError(400, '請選擇已發布、啟用且有圖片的一般圖文選單');
-  }
-};
-
 export class MemberConfigurationService {
   async identities() {
-    const repo = new MemberConfigurationRepository();
-    const [parents, children] = await Promise.all([repo.listIdentities(), repo.listSubIdentities()]);
-    const counts = (await AppDataSource.query(
-      'SELECT member.subIdentityId, sync.status, COUNT(*) AS total FROM member_menu_sync sync INNER JOIN line_member member ON member.id = sync.memberId WHERE member.subIdentityId IS NOT NULL GROUP BY member.subIdentityId, sync.status'
-    )) as { subIdentityId: string; status: string; total: number | string }[];
-    return {
-      items: parents.map((parent) => ({
-        ...parent,
-        children: children
-          .filter((child) => child.identityId === parent.id)
-          .map((child) => ({
-            ...child,
-            syncSummary: Object.fromEntries(
-              counts.filter((row) => row.subIdentityId === child.id).map((row) => [row.status, Number(row.total)])
-            ),
-          })),
-      })),
-    };
+    return memberTransaction((manager) => readIdentities(manager));
   }
   async fields() {
-    return { items: await new MemberConfigurationRepository().listFields() };
+    return memberTransaction((manager) => readFields(manager));
+  }
+  async field(id: string) {
+    return memberTransaction(async (manager) => {
+      const item = await new MemberConfigurationRepository(manager).findField(id);
+      if (!item) throw new MyError(404, '找不到會員欄位');
+      return { item, editing: (await readFieldEditing([item], manager)).get(id)! };
+    });
   }
   async forms() {
     const repo = new MemberConfigurationRepository();
@@ -82,12 +56,11 @@ export class MemberConfigurationService {
       if (!current) throw new MyError(404, '找不到身份');
       const data = { ...current, ...objectInput(input) };
       const isEnabled = booleanInput(data.isEnabled);
-      if (!isEnabled) {
-        const children = await repo.listSubIdentities(current.id);
-        const forms = await repo.listForms();
-        if (forms.some((form) => form.isEnabled && children.some((child) => (child.id === form.targetSubIdentityId || form.allowedSourceSubIdentityIds.includes(child.id)))))
-          throw new MyError(409, '請先調整使用此身份的會員問卷');
-      }
+      if (!isEnabled)
+        await assertCanDisable(
+          manager,
+          (await repo.listSubIdentities(current.id)).map((child) => child.id)
+        );
       Object.assign(current, {
         name: textInput(data.name, '身份名稱'),
         isEnabled,
@@ -114,26 +87,16 @@ export class MemberConfigurationService {
       const richmenuKey = nullableId(data.richmenuKey);
       await validateMemberMenu(manager, richmenuKey);
       const isEnabled = booleanInput(data.isEnabled);
-      if (
-        !isEnabled &&
-        (await repo.listForms()).some((form) => form.isEnabled && (form.targetSubIdentityId === current.id || form.allowedSourceSubIdentityIds.includes(current.id)))
-      )
-        throw new MyError(409, '請先調整使用此子身份的會員問卷');
-      const menuChanged = current.richmenuKey !== richmenuKey;
+      if (!isEnabled) await assertCanDisable(manager, [current.id]);
+      const oldMenu = current.richmenuKey;
       Object.assign(current, {
         name: textInput(data.name, '子身份名稱'),
         isEnabled,
         sortOrder: integerInput(data.sortOrder, '排序'),
         richmenuKey,
       });
-      const item = await repo.saveSubIdentity(current);
-      if (menuChanged) {
-        syncSubIdentityId = current.id;
-        const sync = new MemberMenuSyncRepository(manager);
-        let cursor: string | null = '';
-        while (cursor !== null) cursor = await sync.queueForSubIdentity(current.id, richmenuKey, cursor);
-      }
-      return { item };
+      if (await saveSubAndQueue(manager, current, oldMenu)) syncSubIdentityId = current.id;
+      return { item: current };
     });
     if (syncSubIdentityId) await trySyncSubIdentityMenus(syncSubIdentityId);
     return result;
@@ -143,8 +106,7 @@ export class MemberConfigurationService {
       const repo = new MemberConfigurationRepository(manager);
       if (isSub) {
         if (!(await repo.findSubIdentity(id))) throw new MyError(404, '找不到子身份');
-        const refs = await repo.findSubIdentityReferences(id);
-        if (refs.memberCount || refs.surveyKeys.length) throw new MyError(409, '此子身份仍被會員或問卷引用');
+        await assertCanDeleteSub(manager, id);
         await repo.deleteSubIdentity(id);
         return;
       }
@@ -167,16 +129,25 @@ export class MemberConfigurationService {
             validation: {},
           });
       if (!current) throw new MyError(404, '找不到會員欄位');
-      const item = parseField(input, current);
+      const data = allowedSettingsInput(input, ['label', 'type', 'isEnabled', 'sortOrder', 'options', 'validation']);
+      if (!id && data.sortOrder === undefined)
+        current.sortOrder = Math.max(-1, ...(await repo.listFields()).map((field) => field.sortOrder)) + 1;
+      const item = parseField(data, current);
       const refs = await repo.findFieldReferences(current.id);
       if (refs.valueCount || refs.surveyKeys.length) {
         if (item.type !== current.type) throw new MyError(409, '已使用的欄位不可更改類型，請建立新欄位');
-        if (
-          current.options.some(
-            (old) => !item.options.some((option) => option.id === old.id)
-          )
-        )
-          throw new MyError(409, '已使用的選項請保留代碼，可重新命名或停用');
+      }
+      if (current.options.some((old) => !item.options.some((option) => option.id === old.id))) {
+        const editing = (await readFieldEditing([current], manager)).get(current.id)!;
+        const blocked = editing.options.filter(
+          (option) => !option.canRemove && !item.options.some((next) => next.id === option.id)
+        );
+        if (blocked.length)
+          throw new MemberSettingsError(
+            409,
+            '已使用的選項請保留，可重新命名或停用',
+            blocked.map((option) => ({ path: `options.${option.id}.label`, message: '此選項仍被會員或問卷引用' }))
+          );
       }
       if (!item.isEnabled && refs.surveyKeys.length) throw new MyError(409, '請先移除問卷中的欄位綁定');
       const saved = await repo.saveField(item);

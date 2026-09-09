@@ -1,3 +1,4 @@
+import { MemberIdentityGroupService } from '../../functions/membership/memberIdentityGroupService';
 import { Router } from 'express';
 import { requireRole } from '../../middlewares/requireRole';
 import { MemberConfigurationService } from '../../functions/membership/memberConfigurationService';
@@ -5,10 +6,27 @@ import { taiwanRegions } from '../../functions/membership/memberRegions';
 
 const router = Router();
 const service = new MemberConfigurationService();
+const groups = new MemberIdentityGroupService();
 const write = requireRole(['admin', 'manager']);
 router.use(requireRole(['admin', 'manager', 'viewer']));
 router.get('/member-identities', async (_req, res) => {
   res.json(await service.identities());
+});
+router.get('/member-identity-groups/:id', async (req, res) => {
+  res.json(await groups.get(req.params.id));
+});
+router.put('/member-identity-groups/:id', write, async (req, res) => {
+  const { created, ...result } = await groups.save(req.params.id, req.body);
+  res.status(created ? 201 : 200).json(result);
+});
+router.put('/member-identities/order', write, async (req, res) => {
+  res.json(await groups.reorder('identities', req.body));
+});
+router.put('/member-fields/order', write, async (req, res) => {
+  res.json(await groups.reorder('fields', req.body));
+});
+router.get('/member-fields/:id', async (req, res) => {
+  res.json(await service.field(req.params.id));
 });
 router.post('/member-identities', write, async (req, res) => {
   res.status(201).json(await service.saveIdentity(null, req.body));

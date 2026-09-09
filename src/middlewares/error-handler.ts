@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { BaseResponse } from '../@types/base-response';
 import { MyError } from '../@types/my-error';
+import { MemberSettingsError } from '../@types/member-settings-error';
 
 /**
  * 共用的錯誤處理器，用來接收所有路由拋出來的錯誤並轉化成適當的 Response 給前端
@@ -20,5 +21,7 @@ export const errorHandler = async (err: Error, req: Request, res: Response, next
   }
 
   //系統錯誤
-  res.status(errorResponse.statusCode).send(errorResponse);
+  res
+    .status(errorResponse.statusCode)
+    .send(err instanceof MemberSettingsError ? { ...errorResponse, fieldErrors: err.fieldErrors } : errorResponse);
 };
