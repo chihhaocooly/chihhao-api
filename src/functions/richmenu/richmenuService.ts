@@ -741,7 +741,12 @@ const createLineRichmenuFromLocalItem = async (item: RichmenuDto): Promise<strin
     selected: item.selected,
     name: item.name.slice(0, 300),
     chatBarText: item.chatBarText.slice(0, 14),
-    areas: item.areas.slice(0, 20).map((area, index) => toLineRichmenuArea(area, item, lineSize, index)),
+    // 無動作區塊只保留在編輯器；LINE 的熱區清單僅包含可點擊動作，純提示圖片可使用空清單。
+    areas: item.areas
+      .map((area, index) => ({ area, index }))
+      .filter(({ area }) => normalizeAreaAction(area).type !== 'none')
+      .slice(0, 20)
+      .map(({ area, index }) => toLineRichmenuArea(area, item, lineSize, index)),
   });
 
   try {
