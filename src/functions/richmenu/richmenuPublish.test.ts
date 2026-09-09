@@ -4,6 +4,7 @@ import { EntityManager } from 'typeorm';
 import { LineMessageApiService } from '../lineMessageApi/lineMessageApiService';
 import { memberTransaction } from '../membership/memberTransaction';
 import {
+  copyRichmenu,
   createRichmenu,
   publishRichmenu,
   getPublishedMemberRichmenu,
@@ -159,13 +160,48 @@ describe('圖文選單發布至 LINE', () => {
     await expect(updateRichmenu('menu', payload('published'))).rejects.toMatchObject({ statusCode: 409 });
     expect(LineMessageApiService.CreateRichmenu).not.toHaveBeenCalled();
   });
-  test('編輯發布會儲存新的 LINE ID', async () => {
+  test('未發布草稿仍可編輯後發布並儲存 LINE ID', async () => {
     await updateRichmenu('menu', payload('published'));
     expect(LineMessageApiService.CreateRichmenu).toHaveBeenCalledTimes(1);
     const update = jest.mocked(AppDataSource.query).mock.calls.find(([sql]) => sql.startsWith('UPDATE'));
     expect(update?.[1]).toContain('line-menu');
   });
-  test('新選單 LINE 建立失敗不新增本機資料', async () => {
+  test.each(['draft', 'published'] as const)('已有 LINE ID 不可更新成 %s，且不寫 DB 或呼叫 LINE', async (status) => {
+    row.lineRchmenuId = 'original-line-id';
+    const request = payload(status);
+    request.areas = [area('uri')];
+    await expect(updateRichmenu('menu', request)).rejects.toMatchObject({
+      statusCode: 409,
+      message: '已發布的圖文選單僅供預覽，請複製後再修改',
+    });
+    expect(memberTransaction).not.toHaveBeenCalled();
+    expect(jest.mocked(AppDataSource.query).mock.calls.every(([sql]) => sql.startsWith('SELECT'))).toBe(true);
+    expect(LineMessageApiService.CreateRichmenu).not.toHaveBeenCalled();
+    expect(LineMessageApiService.SetRichmenuImage).not.toHaveBeenCalled();
+    expect(LineMessageApiService.DeleteRichmenu).not.toHaveBeenCalled();
+  });
+  test('即使狀態意外為草稿，有 LINE ID 仍不可更新', async () => {
+    row.status = 'draft';
+    row.lineRchmenuId = 'original-line-id';
+    await expect(updateRichmenu('menu', payload('draft'))).rejects.toMatchObject({ statusCode: 409 });
+  });
+  test('複製已發布預設選單只新增草稿，保留熱區與圖片並清空觸發字詞', async () => {
+    row.lineRchmenuId = 'original-line-id';
+    row.isDefault = true;
+    row.areas = [area('uri')];
+    row.queryListKeywords = ['原選單'];
+    await copyRichmenu('menu');
+    const calls = jest.mocked(AppDataSource.query).mock.calls;
+    const params = calls.find(([sql]) => sql.startsWith('INSERT'))?.[1];
+    expect(params).toContain(JSON.stringify(row.areas));
+    expect(params).toContain(row.imageUrl);
+    expect(params).toContain('draft');
+    expect(params).not.toContain('original-line-id');
+    expect(params).not.toContain(JSON.stringify(row.queryListKeywords));
+    expect(calls.some(([sql]) => sql.startsWith('UPDATE'))).toBe(false);
+    expect(LineMessageApiService.CreateRichmenu).not.toHaveBeenCalled();
+  });
+  test('新選單 LINE 建立失敗不新增本機資料' , async () => {
     jest.mocked(LineMessageApiService.CreateRichmenu).mockRejectedValue({ response: { status: 400 } });
     await expect(createRichmenu(payload('published'))).rejects.toMatchObject({ statusCode: 502 });
     expect(jest.mocked(AppDataSource.query).mock.calls.some(([sql]) => sql.startsWith('INSERT'))).toBe(false);

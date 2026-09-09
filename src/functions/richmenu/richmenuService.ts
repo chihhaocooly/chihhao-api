@@ -132,6 +132,10 @@ export const updateRichmenu = async (richmenuKey: string, payload: SaveRichmenuR
   if (!existing) {
     throw new MyError(404, '找不到圖文選單');
   }
+  // 既有 LINE ID 的內容不能原地更新；包含嘗試將已發布選單退回草稿。
+  if (existing.lineRchmenuId) {
+    throw new MyError(409, '已發布的圖文選單僅供預覽，請複製後再修改');
+  }
 
   const result = await validateRichmenu(payload, richmenuKey);
   if (!result.isValid) {
