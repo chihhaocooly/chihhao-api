@@ -20,6 +20,17 @@ import { trySyncMemberMenu } from './memberMenuWorker';
 import { identitySnapshot } from './memberProfileService';
 import { requireSubIdentity } from './memberConfigurationService';
 
+// 儲存規則與 runtime 分開，讓尚未改版的舊綁定題目仍能填答。
+export const normalizeSurveyQuestionsForSave = (questions: SurveyQuestion[]): SurveyQuestion[] =>
+  questions.map((question) => {
+    if (question.type !== 'member-field') {
+      if (question.memberFieldBinding) throw new MyError(400, '一般題型不可連動會員欄位，請改用會員欄位題型');
+      return question;
+    }
+    if (!question.memberFieldBinding) throw new MyError(400, '會員欄位題目必須選擇連動欄位');
+    return { ...question, data: [], placeholder: undefined };
+  });
+
 export const attachMemberFields = async (
   questions: SurveyQuestion[],
   manager?: EntityManager

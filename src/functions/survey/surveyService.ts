@@ -1,5 +1,5 @@
 import { MemberDataRepository, MemberConfigurationRepository, MemberFieldValueData } from '@chihhaocooly/chihhao-package';
-import { attachMemberFields, submitMemberSurvey } from '../membership/memberSurveyService';
+import { attachMemberFields, normalizeSurveyQuestionsForSave, submitMemberSurvey } from '../membership/memberSurveyService';
 import { memberTransaction } from '../membership/memberTransaction';
 import { objectInput, textInput } from '../membership/memberInput';
 import { AppDataSource, ProjectAssetReferenceRepository, type ProjectAssetReferenceInput } from '@chihhaocooly/chihhao-package';
@@ -264,7 +264,7 @@ export const updateSurveyForAdmin = async (
     return { validation: null, item: null };
   }
 
-  const normalized = normalizeSavePayload({ ...current, ...payload });
+  const normalized = normalizeSavePayload({ ...current, ...payload }, payload.questions !== undefined);
   if (!normalized.validation.isValid || !normalized.value) {
     return { validation: normalized.validation, item: null };
   }
@@ -339,6 +339,9 @@ export const copySurveyForAdmin = async (surveyKey: string): Promise<SurveyAdmin
     ...source,
     title: `${source.title} 複本`.slice(0, 100),
     enable: false,
+    questions: source.questions.map((question) => question.memberFieldBinding
+      ? { ...question, type: 'member-field' as const, data: [], placeholder: undefined }
+      : question),
   });
 
   return result.item;
@@ -586,6 +589,7 @@ interface NormalizedSurveyValue {
 
 const normalizeSavePayload = (
   payload: SaveSurveyRequest,
+  shouldValidateQuestionBindings = true,
 ): {
   validation: SurveyValidationResult;
   value: NormalizedSurveyValue | null;
@@ -597,7 +601,8 @@ const normalizeSavePayload = (
     fieldErrors.push({ field: 'title', message: '請輸入問卷標題' });
   }
 
-  const questions = normalizeQuestions(payload.questions);
+  const parsedQuestions = normalizeQuestions(payload.questions);
+  const questions = shouldValidateQuestionBindings ? normalizeSurveyQuestionsForSave(parsedQuestions) : parsedQuestions;
   if (questions.length === 0) {
     fieldErrors.push({ field: 'questions', message: '請至少建立一個題目' });
   }
