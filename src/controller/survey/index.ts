@@ -14,9 +14,11 @@ surveyRouter.get('/member-default', async (_req, res) => {
   const repo = new MemberConfigurationRepository();
   const key = (await repo.getSettings())?.defaultSurveyKey;
   const form = key ? await repo.findForm(key) : null;
-  res.json({ surveyKey: form?.isEnabled ? key : null });
+  res.json({ surveyKey: form ? key : null });
 });
-surveyRouter.get('/member-regions', (_req, res) => { res.json(taiwanRegions); });
+surveyRouter.get('/member-regions', (_req, res) => {
+  res.json(taiwanRegions);
+});
 surveyRouter.get('/runtime', apiGetSurveyRuntime);
 surveyRouter.post('/submit', apiSubmitSurvey);
 surveyRouter.get('/my-reports', apiListMySurveyReports);

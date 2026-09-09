@@ -176,9 +176,10 @@ export const submitMemberSurvey = async (request: SurveySubmitRequest): Promise<
     }
     let outcome: SurveySubmitResponse['membershipOutcome'] = 'none';
     let targetId = member.subIdentityId;
-    if (form?.isEnabled) {
+    if (form?.isEnabled && form.allowedSourceSubIdentityIds.length) {
       if (!form.allowedSourceSubIdentityIds.includes(member.subIdentityId)) outcome = 'skipped-source';
       else {
+        if (!form.targetSubIdentityId) throw new MyError(409, '問卷身份設定有誤，請聯絡管理員');
         const target = await requireSubIdentity(manager, form.targetSubIdentityId);
         targetId = target.id;
         outcome = targetId === member.subIdentityId ? 'unchanged' : 'changed';

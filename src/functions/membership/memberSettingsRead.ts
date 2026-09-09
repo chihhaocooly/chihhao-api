@@ -62,7 +62,10 @@ export const readIdentities = async (manager: EntityManager = AppDataSource.mana
   return { items, capabilities: { identityGroupEditing: true, ordering: true }, orderRevision: orderRevision(parents) };
 };
 export const formUsesSub = (form: MemberForm, id: string): boolean =>
-  form.targetSubIdentityId === id || form.allowedSourceSubIdentityIds.includes(id);
+  form.isEnabled &&
+  !!form.targetSubIdentityId &&
+  form.allowedSourceSubIdentityIds.length > 0 &&
+  (form.targetSubIdentityId === id || form.allowedSourceSubIdentityIds.includes(id));
 export const readIdentityGroup = async (id: string, manager: EntityManager = AppDataSource.manager) => {
   const item = (await readIdentities(manager)).items.find((parent) => parent.id === id);
   if (!item) throw new MyError(404, '找不到身份');

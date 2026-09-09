@@ -1,3 +1,4 @@
+import { getPrimaryLiffUrls } from '../siteSettings/primaryLiffUrls';
 import { MemberDataRepository, MemberConfigurationRepository, MemberFieldValueData } from '@chihhaocooly/chihhao-package';
 import { attachMemberFields, normalizeSurveyQuestionsForSave, submitMemberSurvey } from '../membership/memberSurveyService';
 import { memberTransaction } from '../membership/memberTransaction';
@@ -30,7 +31,6 @@ const defaultPage = 1;
 const defaultPageSize = 20;
 const surveyAssetEntityType = 'survey';
 const descriptionImageUsageProfileKey = 'surveyManagement.descriptionImage';
-const liffUrlBase = 'https://liff.line.me';
 
 export const getSurveyRuntime = async (surveyId: string, userId: string): Promise<SurveyRuntimeDto> => {
   const survey = await findSurvey(surveyId);
@@ -663,23 +663,8 @@ const toAdminDto = (survey: SurveyRow, buildFillUrl: SurveyFillUrlBuilder | null
 
 type SurveyFillUrlBuilder = (surveyKey: string) => string;
 
-const getSurveyFillUrlBuilder = async (): Promise<SurveyFillUrlBuilder | null> => {
-  const rows = await AppDataSource.query(
-    `
-      SELECT app.liffId
-      FROM site_line_setting setting
-      INNER JOIN site_liff_app app ON app.id = setting.primaryLiffAppId
-      WHERE setting.settingKey = 'default'
-      LIMIT 1
-    `,
-  ) as Array<{ liffId: string }>;
-  const liffId = rows[0]?.liffId;
-  if (!liffId) {
-    return null;
-  }
-
-  return (surveyKey: string) => `${liffUrlBase}/${encodeURIComponent(liffId)}/survey?surveyId=${encodeURIComponent(surveyKey)}`;
-};
+const getSurveyFillUrlBuilder = async (): Promise<SurveyFillUrlBuilder | null> =>
+  (await getPrimaryLiffUrls())?.survey ?? null;
 
 const adminDtoToSurveyRow = (survey: SurveyAdminDto): SurveyRow => ({
   ...survey,

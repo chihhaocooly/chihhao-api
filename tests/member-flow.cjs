@@ -72,12 +72,16 @@ before(async () => {
   pkg.AppDataSource.query = db.query.bind(db);
   const runner = db.createQueryRunner();
   try {
-    await runner.query('CREATE TABLE site_line_setting (id int PRIMARY KEY)');
+    await runner.query(
+      'CREATE TABLE site_line_setting (id int PRIMARY KEY, settingKey varchar(36), primaryLiffAppId varchar(36))'
+    );
+    await runner.query('CREATE TABLE site_liff_app (id varchar(36) PRIMARY KEY, liffId varchar(100))');
     for (const [name, file] of [
       ['AddLineMemberManagement1794600000000', '1794600000000-AddLineMemberManagement'],
       ['AddSurveyManagement1794700000000', '1794700000000-AddSurveyManagement'],
       ['OptimizeSurveyManagement1794800000000', '1794800000000-OptimizeSurveyManagement'],
       ['AddMemberIdentityAndProfileLinkage1795100000000', '1795100000000-AddMemberIdentityAndProfileLinkage'],
+      ['AllowMemberFormWithoutIdentity1795200000000', '1795200000000-AllowMemberFormWithoutIdentity'],
     ])
       await new (require(`@chihhaocooly/chihhao-package/dist/mysql/migrations/${file}`)[name])().up(runner);
     await runner.query(
@@ -614,4 +618,96 @@ test('問卷欄位相容：空白保留舊值、0／false 寫入、選項改名�
   const preset = (await config.fields()).items.find((field) => field.presetKey === 'birthday');
   assert.ok(preset);
   await assert.rejects(config.saveField(preset.id, { type: 'text' }), { statusCode: 409 });
+});
+
+test('不變更身份的問卷可預設、更新會員欄位、保留原身份，移除仍受預設保護', async () => {
+  const field = (
+    await config.saveField(null, {
+      label: '會員問卷測試欄位',
+      type: 'text',
+      isEnabled: true,
+      sortOrder: 0,
+      options: [],
+      validation: {},
+    })
+  ).item;
+  const key = await createSurvey([
+    {
+      id: 'name',
+      title: '名字',
+      type: 'member-field',
+      required: true,
+      memberFieldBinding: { fieldId: field.id, updateMode: 'overwrite' },
+    },
+  ]);
+  const none = { isEnabled: false, targetSubIdentityId: null, allowedSourceSubIdentityIds: [] };
+  const saved = await config.saveForm(key, { ...none, createOnly: true });
+  assert.equal(saved.item.targetSubIdentityId, null);
+  await config.setDefault({ surveyKey: key });
+  const settings = await config.forms();
+  assert.equal(settings.defaultSurveyKey, key);
+  assert.equal(settings.capabilities.optionalIdentityTransition, true);
+  const member = await ensure();
+  const { pending } = await setup();
+  await profiles.transition(
+    member.id,
+    { subIdentityId: pending.id, expectedVersion: 0, requestId: randomUUID() },
+    'admin'
+  );
+  const result = await submitMemberSurvey({
+    surveyId: key,
+    userId: member.lineUserId,
+    requestId: randomUUID(),
+    surveyVersion: 2,
+    answers: [{ questionId: 'name', type: 'member-field', answer: '新名字' }],
+  });
+  assert.equal(result.membershipOutcome, 'none');
+  const detail = await profiles.detail(member.id);
+  assert.equal(detail.membership.subIdentityId, pending.id);
+  assert.equal(detail.profile.find((item) => item.field.id === field.id).value, '新名字');
+  await assert.rejects(config.deleteForm(key), /先更換預設/);
+  await config.setDefault({ surveyKey: null });
+  await config.deleteForm(key);
+  assert.equal((await profiles.history(member.id, 'survey-reports')).total, 1);
+  assert.ok((await db.query('SELECT surveyKey FROM survey WHERE surveyKey = ?', [key])).length);
+});
+
+test('新增競爭不覆蓋既有設定，條件模式要求來源與有效目標，none釋放身份引用', async () => {
+  const { pending } = await setup();
+  const key = await createSurvey();
+  const conditional = { isEnabled: true, targetSubIdentityId: pending.id, allowedSourceSubIdentityIds: [null] };
+  await config.saveForm(key, { ...conditional, createOnly: true });
+  await assert.rejects(
+    config.saveForm(key, {
+      isEnabled: false,
+      targetSubIdentityId: null,
+      allowedSourceSubIdentityIds: [],
+      createOnly: true,
+    }),
+    /已設定/
+  );
+  assert.equal((await new pkg.MemberConfigurationRepository(db.manager).findForm(key)).targetSubIdentityId, pending.id);
+  await assert.rejects(config.saveForm(key, { ...conditional, allowedSourceSubIdentityIds: [] }), /至少選擇/);
+  await assert.rejects(config.saveForm(key, { ...conditional, targetSubIdentityId: null }), /目標子身份/);
+  await config.saveForm(key, { ...conditional, isEnabled: false });
+  const item = await new pkg.MemberConfigurationRepository(db.manager).findForm(key);
+  assert.equal(item.targetSubIdentityId, null);
+  assert.deepEqual(item.allowedSourceSubIdentityIds, []);
+  assert.deepEqual(
+    (await new pkg.MemberConfigurationRepository(db.manager).findSubIdentityReferences(pending.id)).surveyKeys,
+    []
+  );
+});
+
+test('固定會員入口使用主要 LIFF 且不含問卷代碼，切換預設不改變網址', async () => {
+  const id = randomUUID();
+  await db.query('INSERT INTO site_liff_app (id, liffId) VALUES (?, ?)', [id, '123-example']);
+  await db.query('INSERT INTO site_line_setting (id, settingKey, primaryLiffAppId) VALUES (1, ?, ?)', ['default', id]);
+  try {
+    assert.equal((await config.forms()).defaultEntryUrl, 'https://liff.line.me/123-example/member');
+    await config.setDefault({ surveyKey: null });
+    assert.equal((await config.forms()).defaultEntryUrl, 'https://liff.line.me/123-example/member');
+  } finally {
+    await db.query('DELETE FROM site_line_setting WHERE id = 1');
+  }
 });

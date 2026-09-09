@@ -1,5 +1,7 @@
+import { getPrimaryLiffUrls } from '../siteSettings/primaryLiffUrls';
 import { randomUUID } from 'crypto';
 import {
+  AppDataSource,
   MemberConfigurationRepository,
   MemberDataRepository,
   MemberIdentity,
@@ -28,6 +30,13 @@ export const requireSubIdentity = async (manager: EntityManager, id: string): Pr
   return sub;
 };
 
+const optionalTransitionsReady = async (manager: EntityManager = AppDataSource.manager): Promise<boolean> => {
+  const columns = (await manager.query(
+    "SELECT IS_NULLABLE AS nullable FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'member_form' AND COLUMN_NAME = 'targetSubIdentityId'"
+  )) as { nullable: string }[];
+  return columns[0]?.nullable === 'YES';
+};
+
 export class MemberConfigurationService {
   async identities() {
     return memberTransaction((manager) => readIdentities(manager));
@@ -42,10 +51,25 @@ export class MemberConfigurationService {
       return { item, editing: (await readFieldEditing([item], manager)).get(id)! };
     });
   }
-  async forms() {
+  async forms(): Promise<{
+    items: MemberForm[];
+    defaultSurveyKey: string | null;
+    defaultEntryUrl: string | null;
+    capabilities: { optionalIdentityTransition: boolean };
+  }> {
     const repo = new MemberConfigurationRepository();
-    const [items, settings] = await Promise.all([repo.listForms(), repo.getSettings()]);
-    return { items, defaultSurveyKey: settings?.defaultSurveyKey ?? null };
+    const [items, settings, urls, ready] = await Promise.all([
+      repo.listForms(),
+      repo.getSettings(),
+      getPrimaryLiffUrls(),
+      optionalTransitionsReady(),
+    ]);
+    return {
+      items,
+      defaultSurveyKey: settings?.defaultSurveyKey ?? null,
+      defaultEntryUrl: urls?.member ?? null,
+      capabilities: { optionalIdentityTransition: ready },
+    };
   }
   async saveIdentity(id: string | null, input: unknown) {
     return memberTransaction(async (manager) => {
@@ -171,16 +195,24 @@ export class MemberConfigurationService {
       const repo = new MemberConfigurationRepository(manager);
       await new MemberDataRepository(manager).lockSurvey(surveyKey);
       const data = objectInput(input);
-      const targetSubIdentityId = textInput(data.targetSubIdentityId, '目標子身份', 36);
-      await requireSubIdentity(manager, targetSubIdentityId);
+      const createOnly = data.createOnly === undefined ? false : booleanInput(data.createOnly);
+      if (createOnly && (await repo.findForm(surveyKey)))
+        throw new MyError(409, '此問卷已設定會員規則，請編輯既有設定');
+      const isEnabled = booleanInput(data.isEnabled);
       if (!Array.isArray(data.allowedSourceSubIdentityIds) || data.allowedSourceSubIdentityIds.length > 200)
         throw new MyError(400, '請設定有效的來源身份清單');
-      const allowedSourceSubIdentityIds = [...new Set(data.allowedSourceSubIdentityIds.map(nullableId))];
-      for (const source of allowedSourceSubIdentityIds)
-        if (source && !(await repo.findSubIdentity(source))) throw new MyError(400, '來源子身份不存在');
-      const isEnabled = booleanInput(data.isEnabled);
-      if (!isEnabled && (await repo.getSettings())?.defaultSurveyKey === surveyKey)
-        throw new MyError(409, '請先更換預設會員問卷');
+      const allowedSourceSubIdentityIds = isEnabled
+        ? [...new Set(data.allowedSourceSubIdentityIds.map(nullableId))]
+        : [];
+      const targetSubIdentityId = isEnabled ? textInput(data.targetSubIdentityId, '目標子身份', 36) : null;
+      if (targetSubIdentityId !== null) {
+        if (!allowedSourceSubIdentityIds.length) throw new MyError(400, '請至少選擇一個來源身份');
+        await requireSubIdentity(manager, targetSubIdentityId);
+        for (const source of allowedSourceSubIdentityIds)
+          if (source && !(await repo.findSubIdentity(source))) throw new MyError(400, '來源子身份不存在');
+      } else {
+        if (!(await optionalTransitionsReady(manager))) throw new MyError(503, '會員問卷功能尚未完成資料庫更新');
+      }
       const item = await repo.saveForm(
         Object.assign(new MemberForm(), { surveyKey, targetSubIdentityId, allowedSourceSubIdentityIds, isEnabled })
       );
@@ -204,8 +236,11 @@ export class MemberConfigurationService {
       if (surveyKey) {
         const survey = await new MemberDataRepository(manager).lockSurvey(surveyKey);
         const form = await repo.findForm(surveyKey);
-        if (!survey.enable || !form?.isEnabled) throw new MyError(400, '預設問卷必須已啟用會員問卷設定');
-        await requireSubIdentity(manager, form.targetSubIdentityId);
+        if (!survey.enable || !form) throw new MyError(400, '請選擇已啟用且已設定的會員問卷');
+        if (form.isEnabled && form.allowedSourceSubIdentityIds.length) {
+          if (!form.targetSubIdentityId) throw new MyError(400, '會員問卷的目標身份尚未設定');
+          await requireSubIdentity(manager, form.targetSubIdentityId);
+        }
       }
       await repo.setDefaultSurvey(surveyKey);
       return { defaultSurveyKey: surveyKey };
