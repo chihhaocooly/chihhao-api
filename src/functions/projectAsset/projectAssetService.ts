@@ -1,5 +1,5 @@
 import { Storage } from '@google-cloud/storage';
-import { AppDataSource } from '@chihhaocooly/chihhao-package';
+import { AppDataSource, ProjectAssetReferenceRepository } from '@chihhaocooly/chihhao-package';
 import { createHash, randomUUID } from 'crypto';
 import { extname } from 'path';
 import {
@@ -248,52 +248,8 @@ export const replaceProjectAssetReferencesForEntity = async (
   entityType: string,
   entityKey: string,
   references: ProjectAssetReferenceInput[],
-) => {
-  await AppDataSource.query('DELETE FROM project_asset_reference WHERE entityType = ? AND entityKey = ?', [entityType, entityKey]);
-
-  if (references.length === 0) {
-    return;
-  }
-
-  const uniqueReferences = Array.from(
-    new Map(
-      references
-        .filter((reference) => reference.assetKey.trim())
-        .map((reference) => [
-          [
-            reference.assetKey,
-            reference.ownerModule,
-            reference.entityType,
-            reference.entityKey,
-            reference.usageProfileKey,
-            reference.usageRole,
-            reference.usagePath,
-          ].join(':'),
-          reference,
-        ])
-    ).values()
-  );
-
-  for (const reference of uniqueReferences) {
-    await AppDataSource.query(
-      `INSERT INTO project_asset_reference
-        (referenceKey, assetKey, ownerModule, entityType, entityKey, entityLabel,
-          usageProfileKey, usageRole, usagePath, isBlockingDelete, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      [
-        randomUUID(),
-        reference.assetKey,
-        reference.ownerModule,
-        reference.entityType,
-        reference.entityKey,
-        reference.entityLabel,
-        reference.usageProfileKey,
-        reference.usageRole,
-        reference.usagePath,
-        reference.isBlockingDelete ?? true,
-      ]
-    );
-  }
+): Promise<void> => {
+  await new ProjectAssetReferenceRepository().replaceForEntity(entityType, entityKey, references);
 };
 
 export const deleteProjectAssetReferencesForEntity = async (entityType: string, entityKey: string) => {

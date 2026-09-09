@@ -5,27 +5,22 @@ import { MyError } from '../../@types/my-error';
 import { LineMemberService } from '../../functions/lineMembers';
 import { SiteLineSettingsService } from '../../functions/siteSettings';
 
-let _lineWebhook: LineWebhook | null = null;
-let _initPromise: Promise<void> | null = null;
+let readyWebhook: Promise<LineWebhook> | null = null;
 
-/**
- * 獲取唯一實例，保證多個請求同時進入時不會重複執行 init()
- */
-async function getInstance(): Promise<LineWebhook> {
-  if (!_lineWebhook) {
-    if (!_initPromise) {
-      // 如果沒有初始化，就建立初始化 Promise
-      _initPromise = (async () => {
-        _lineWebhook = new LineWebhook({
-          getLineClient: createLineClient,
-        });
-        await _lineWebhook.init();
-      })();
-    }
-    // 等待初始化完成
-    await _initPromise;
+function getInstance(): Promise<LineWebhook> {
+  if (!readyWebhook) {
+    // 只公開初始化成功的結果，讓所有併發請求共用相同的等待與失敗。
+    readyWebhook = (async () => {
+      const lineWebhook = new LineWebhook({ getLineClient: createLineClient });
+      await lineWebhook.init();
+      return lineWebhook;
+    })().catch((error: unknown) => {
+      // 初始化失敗不可留下未就緒的 instance，下一個有效請求仍可重試。
+      readyWebhook = null;
+      throw error;
+    });
   }
-  return _lineWebhook!;
+  return readyWebhook;
 }
 
 async function createLineClient(): Promise<Client> {

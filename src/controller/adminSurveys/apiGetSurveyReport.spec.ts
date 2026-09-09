@@ -38,8 +38,9 @@ describe('GET admin survey report', () => {
   beforeEach(() => {
     errorLog = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     query.mockReset().mockImplementation(async (sql: string, params: string[]) => {
+      if (sql.includes('FROM site_line_setting')) return [{ liffId: '123-app' }];
       if (sql.includes('FROM survey_report')) {
-        return params[0] === surveyKey && params[1] === reportKey
+        return params[0] === surveyKey && (params.length === 1 || params[1] === reportKey)
           ? [{ reportKey, surveyKey, lineUserId: 'U1', displayName: '填寫者', answers, submittedAt: '2026-09-07T00:00:00Z' }]
           : [];
       }
@@ -69,6 +70,23 @@ describe('GET admin survey report', () => {
     expect((await request(survey, report)).status).toBe(400);
     expect(query).not.toHaveBeenCalled();
   });
+
+  it.each(['admin', 'manager', 'viewer'])('report list allows %s with the existing response envelope', async (role) => {
+    const response = await axios.get(`${baseUrl}/${surveyKey}/reports`, {
+      headers: { 'x-test-role': role }, validateStatus: () => true, proxy: false,
+    });
+    expect(response.status).toBe(200);
+    expect(response.data).toMatchObject({ items: [{ reportKey, surveyId: surveyKey, surveyTitle: '問卷' }], total: 1, page: 1, pageSize: 20 });
+  });
+
+  it.each([['', 401], ['member', 403]])('report list rejects unauthorized role %s before querying', async (role, status) => {
+    const response = await axios.get(`${baseUrl}/${surveyKey}/reports`, {
+      headers: role ? { 'x-test-role': String(role) } : {}, validateStatus: () => true, proxy: false,
+    });
+    expect(response.status).toBe(status);
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it('returns 404 for a missing survey', async () => {
     query.mockResolvedValue([]);
     expect((await request()).status).toBe(404);

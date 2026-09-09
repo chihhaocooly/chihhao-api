@@ -178,24 +178,12 @@ export const listSurveys = async (options: {
 };
 
 export const getSurveyForAdmin = async (surveyKey: string): Promise<SurveyAdminDto | null> => {
-  const surveys = await AppDataSource.query(
-    `
-      SELECT survey.*, asset.publicUrl AS descriptionImage, COUNT(survey_report.reportKey) AS responseCount
-      FROM survey
-      LEFT JOIN survey_report ON survey_report.surveyKey = survey.surveyKey
-      LEFT JOIN project_asset asset ON asset.assetKey = survey.descriptionImageAssetKey
-      WHERE survey.surveyKey = ? AND survey.deletedAt IS NULL
-      GROUP BY survey.surveyKey
-      LIMIT 1
-    `,
-    [surveyKey],
-  ) as SurveyRow[];
-
-  if (!surveys[0]) {
+  const survey = await findSurvey(surveyKey);
+  if (!survey) {
     return null;
   }
 
-  return toAdminDto(surveys[0], await getSurveyFillUrlBuilder());
+  return toAdminDto(survey, await getSurveyFillUrlBuilder());
 };
 
 export const createSurveyForAdmin = async (payload: SaveSurveyRequest): Promise<{
@@ -403,11 +391,13 @@ export const listSurveyReportsForAdmin = async (
   surveyKey: string,
   options: { q?: string; page?: number; pageSize?: number } = {},
 ): Promise<ListSurveyReportsResult> => {
-  const survey = await getSurveyForAdmin(surveyKey);
+  const survey = await findSurvey(surveyKey);
   if (!survey) {
     throw new MyError(404, '問卷不存在');
   }
 
+  // 保留讀取回覆前的題目格式檢查，報表不需要管理 DTO 或 LIFF 填寫網址。
+  const reportContext = { ...survey, questions: normalizeQuestions(survey.questions) };
   const page = Math.max(Number(options.page ?? defaultPage) || defaultPage, 1);
   const pageSize = Math.min(Math.max(Number(options.pageSize ?? defaultPageSize) || defaultPageSize, 1), 100);
   const reports = await AppDataSource.query(
@@ -427,10 +417,9 @@ export const listSurveyReportsForAdmin = async (
       || JSON.stringify(report.answers).toLowerCase().includes(search))
     : reports;
   const start = (page - 1) * pageSize;
-  const surveyRow = adminDtoToSurveyRow(survey);
 
   return {
-    items: filtered.slice(start, start + pageSize).map((report) => toReportDetailDto(surveyRow, report)),
+    items: filtered.slice(start, start + pageSize).map((report) => toReportDetailDto(reportContext, report)),
     total: filtered.length,
     page,
     pageSize,
@@ -665,16 +654,6 @@ type SurveyFillUrlBuilder = (surveyKey: string) => string;
 
 const getSurveyFillUrlBuilder = async (): Promise<SurveyFillUrlBuilder | null> =>
   (await getPrimaryLiffUrls())?.survey ?? null;
-
-const adminDtoToSurveyRow = (survey: SurveyAdminDto): SurveyRow => ({
-  ...survey,
-  enable: survey.enable,
-  repeatable: survey.repeatable,
-  showRepeatableRecords: survey.showRepeatableRecords,
-  finishSendMessage: survey.finishSendMessage,
-  questions: survey.questions,
-  settings: survey.settings,
-});
 
 const toReportDetailDto = (survey: SurveyRow, report: SurveyReportRow): SurveyReportDetailDto => {
   const snapshot = normalizeRecord(report.snapshot);

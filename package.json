@@ -18,7 +18,8 @@
     "docker:push": "docker push $npm_package_config_stageImage:$npm_package_version",
     "deploy:dev": " tsc && docker build -t $npm_package_config_stageImage:$npm_package_version --platform linux/amd64 . && docker push $npm_package_config_stageImage:$npm_package_version && gcloud run deploy chihhao-api --image $npm_package_config_stageImage:$npm_package_version --region asia-east1 --platform managed --allow-unauthenticated",
     "deploy": "gcloud run deploy chihhao-api --image $npm_package_config_stageImage:$npm_package_version --region asia-east1 --platform managed --allow-unauthenticated",
-    "test:membership": "npm run build && node --test tests/member-flow.cjs"
+    "test:membership": "npm run build && node --test tests/member-flow.cjs",
+    "test:asset-references": "npm run build && node --test tests/project-asset-references.cjs"
   },
   "keywords": [],
   "author": "allen@aiii.ai",
@@ -28,7 +29,7 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
-    "@chihhaocooly/chihhao-package": "^1.0.36",
+    "@chihhaocooly/chihhao-package": "1.0.38",
     "@google-cloud/secret-manager": "^4.1.4",
     "@google-cloud/storage": "^7.21.0",
     "@line/bot-sdk": "7.4.0",
