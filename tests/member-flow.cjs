@@ -39,7 +39,7 @@ before(async () => {
       ['OptimizeSurveyManagement1794800000000', '1794800000000-OptimizeSurveyManagement'],
       ['AddMemberIdentityAndProfileLinkage1795100000000', '1795100000000-AddMemberIdentityAndProfileLinkage'],
     ]) await new (require(`@chihhaocooly/chihhao-package/dist/mysql/migrations/${file}`)[name])().up(runner);
-    await runner.query('CREATE TABLE richmenu (richmenuKey varchar(36) PRIMARY KEY, status varchar(20), type varchar(20), enable boolean, imageUrl text, assetKey varchar(36))');
+    await runner.query('CREATE TABLE richmenu (richmenuKey varchar(36) PRIMARY KEY, status varchar(20), type varchar(20), enable boolean, imageUrl text, assetKey varchar(36), lineRchmenuId varchar(100))');
   } finally { await runner.release(); }
 });
 after(async () => { try { if (db?.isInitialized) await db.destroy(); } finally { if (started) docker('rm', '-f', container); } });
@@ -176,13 +176,13 @@ test('子身份更換選單只立即處理該身份，綁定及解除均完成',
   await profiles.transition(other.id, { subIdentityId: verified.id, expectedVersion: 0, requestId: randomUUID() }, 'admin');
   await db.query("UPDATE line_member SET friendStatus = 'followed' WHERE id = ?", [member.id]);
   const key = randomUUID();
-  await db.query("INSERT INTO richmenu VALUES (?, 'published', 'general', 1, 'test-image', NULL)", [key]);
+  await db.query("INSERT INTO richmenu VALUES (?, 'published', 'general', 1, 'test-image', NULL, 'line-menu-test')", [key]);
   const originalToken = SiteLineSettingsService.prototype.getMessageApiChannelAccessToken;
-  const originalMaterialize = richmenuService.materializeMemberRichmenu;
+  const originalMaterialize = richmenuService.getPublishedMemberRichmenu;
   const originalPost = axios.post;
   const originalDelete = axios.delete;
   SiteLineSettingsService.prototype.getMessageApiChannelAccessToken = async () => 'isolated-test-token';
-  richmenuService.materializeMemberRichmenu = async menuKey => { assert.equal(menuKey, key); return 'line-menu-test'; };
+  richmenuService.getPublishedMemberRichmenu = async menuKey => { assert.equal(menuKey, key); return 'line-menu-test'; };
   let linked = 0;
   let unlinked = 0;
   axios.post = async url => { assert.ok(url.endsWith(`${member.lineUserId}/richmenu/line-menu-test`)); linked++; return { data: {} }; };
@@ -197,7 +197,7 @@ test('子身份更換選單只立即處理該身份，綁定及解除均完成',
     assert.equal(unlinked, 1);
   } finally {
     SiteLineSettingsService.prototype.getMessageApiChannelAccessToken = originalToken;
-    richmenuService.materializeMemberRichmenu = originalMaterialize;
+    richmenuService.getPublishedMemberRichmenu = originalMaterialize;
     axios.post = originalPost;
     axios.delete = originalDelete;
   }

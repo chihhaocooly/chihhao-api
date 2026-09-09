@@ -28,13 +28,14 @@ export const requireSubIdentity = async (manager: EntityManager, id: string): Pr
 export const validateMemberMenu = async (manager: EntityManager, key: string | null): Promise<void> => {
   if (key === null) return;
   const rows = (await manager.query(
-    'SELECT status, type, enable, imageUrl, assetKey FROM richmenu WHERE richmenuKey = ? FOR UPDATE',
+    'SELECT status, type, enable, imageUrl, assetKey, lineRchmenuId FROM richmenu WHERE richmenuKey = ? FOR UPDATE',
     [key]
-  )) as Array<{ status: string; type: string; enable: boolean; imageUrl: string; assetKey: string }>;
+  )) as Array<{ status: string; type: string; enable: boolean; imageUrl: string; assetKey: string; lineRchmenuId: string }>;
   const menu = rows[0];
   if (
     !menu ||
     menu.status !== 'published' ||
+    !menu.lineRchmenuId ||
     menu.type !== 'general' ||
     !menu.enable ||
     (!menu.imageUrl && !menu.assetKey)

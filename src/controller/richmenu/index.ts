@@ -1,3 +1,4 @@
+import { publishRichmenu } from '../../functions/richmenu/richmenuService';
 import express from 'express';
 import apiGetAllRichmenuList from './apiGetAllRichmenuList';
 import apiSetDefaultRichmenu from './apiSetDefaultRichmenu';
@@ -12,6 +13,10 @@ import apiSyncRichmenus from './apiSyncRichmenus';
 
 
 const richmenuRouter = express.Router();
+
+richmenuRouter.post('/:richmenuKey/publish', requireRole(['admin', 'manager']), async (req, res) => {
+    res.json({ item: await publishRichmenu(req.params.richmenuKey) });
+});
 
 richmenuRouter.get('/',
     requireRole(['admin', 'manager', 'viewer']),

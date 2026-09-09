@@ -4,7 +4,7 @@ import { SiteLineSettingsService } from '../siteSettings';
 import * as richmenu from '../richmenu/richmenuService';
 import { trySyncMemberMenu } from './memberMenuWorker';
 
-jest.mock('../richmenu/richmenuService', () => ({ materializeMemberRichmenu: jest.fn() }));
+jest.mock('../richmenu/richmenuService', () => ({ getPublishedMemberRichmenu: jest.fn() }));
 
 describe('操作觸發圖文選單同步', () => {
   let queued: MemberMenuSync;
@@ -29,7 +29,7 @@ describe('操作觸發圖文選單同步', () => {
     jest.spyOn(axios, 'delete').mockResolvedValue({ data: {} });
     jest.spyOn(axios, 'post').mockResolvedValue({ data: {} });
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-    jest.mocked(richmenu.materializeMemberRichmenu).mockResolvedValue('line-menu');
+    jest.mocked(richmenu.getPublishedMemberRichmenu).mockResolvedValue('line-menu');
   });
   afterEach(() => { jest.restoreAllMocks(); jest.clearAllMocks(); });
 
@@ -44,7 +44,7 @@ describe('操作觸發圖文選單同步', () => {
     queued.desiredRichmenuKey = 'menu';
     jest.mocked(AppDataSource.manager.findOneBy).mockResolvedValue(Object.assign(new LineMember(), { friendStatus: 'blocked' }));
     expect(await trySyncMemberMenu('member')).toBe('waiting-friend');
-    expect(richmenu.materializeMemberRichmenu).not.toHaveBeenCalled();
+    expect(richmenu.getPublishedMemberRichmenu).not.toHaveBeenCalled();
     expect(axios.post).not.toHaveBeenCalled();
   });
   test.each(['lease', 'backoff', 'synced'] as const)('%s 狀態不重複呼叫 LINE', async (state) => {
@@ -73,7 +73,7 @@ describe('操作觸發圖文選單同步', () => {
   });
   test('發布期間目標變更，不能將舊選單綁到新目標', async () => {
     queued.desiredRichmenuKey = 'old-menu';
-    jest.mocked(richmenu.materializeMemberRichmenu).mockImplementation(async () => {
+    jest.mocked(richmenu.getPublishedMemberRichmenu).mockImplementation(async () => {
       queued = Object.assign(new MemberMenuSync(), queued, { generation: 2, desiredRichmenuKey: null });
       return 'old-line-menu';
     });

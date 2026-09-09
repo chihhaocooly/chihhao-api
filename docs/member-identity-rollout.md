@@ -60,7 +60,7 @@ Scheduler job 設定：
 - `GET /survey/member-default`、`GET /survey/member-regions` 需要 LINE Firebase auth。
 - `/survey/submit` 必帶 `surveyVersion`、`requestId`；呼叫端 userId 不作為本人依據。重試相同內容使用相同 requestId；改答案需新 requestId；409 需使用者確認新版問卷。
 - 設定與會員交易先取得 `member_settings(1)` 鎖，再鎖問卷、會員。這是第一版刻意使用的全域交易序列化，可避免無 foreign key 的引用競爭；若流量提升，應量測鎖等待後再改為細粒度鎖。
-- 圖文選單被子身份引用時不可直接改內容或刪除。先複製選單、更新子身份綁定。改動尚未被引用的選單會清除舊 LINE id，之後重新發布，避免使用過期内容。
+- 圖文選單被子身份引用時不可直接改內容或刪除。先複製選單、更新子身份綁定。發布時會先建立 LINE 選單並上傳圖片，成功後才保存新 LINE ID；會員同步只綁定已發布 ID。歷史無 LINE ID 的公開選單在列表視為草稿，可按「發布到 LINE」補發布，再重試會員同步。
 - 新報表用提交快照（含會員選項名稱）顯示；舊報表使用現有題目 fallback。欄位定義修改會增加引用問卷版本。
 
 ## 台灣行政區資料
@@ -76,3 +76,11 @@ Scheduler job 設定：
 - `npm run test:membership`：自行建立 localhost、隨機 port 的 MySQL 8.4 container，僅使用測試資料；不讀正式 DB 連線設定，結束刪除 container。驗證來源不符但更新欄位、防重送、版本衝突、快照、並發、LINE 模擬失敗及恢復。
 - UI 使用實際元件與本機 API／登入替身驗證 1280px／390px，不等同正式站登入或真實 OA 驗證。
 - npm install 回報既有依賴弱點清單；本次未進行跨版本依賴全面升級。
+
+## 圖文選單發布流程調整
+
+- POST /richmenu 與 PUT /richmenu/:key 的 status=published 現在等待 LINE 建立、圖片上傳完成才提交 published；草稿不呼叫 LINE。
+- POST /richmenu/:key/publish 空 body，admin／manager 可補發布既有草稿，包括已被會員身份引用的歷史設定；不修改内容或身份。
+- 無 LINE ID 的歷史公開資料讀取為 draft，列表篩選一致，不直接更新 DB。會員設定拒絕新綁定沒有 LINE ID 的選單。
+- 發布與 OA 預設設定分離；綁定會員及設為預設不再自動建立選單。既有失敗會員在管理員補發布後按重試同步。
+- LINE 失敗 502 顯示安全訊息；本機資料在發布期間改動回 409，清理本次建立的遠端選單；舊遠端 ID 保留，避免破壞其他既有綁定。

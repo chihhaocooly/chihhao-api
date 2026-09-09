@@ -8,7 +8,7 @@ import {
 } from '@chihhaocooly/chihhao-package';
 import axios from 'axios';
 import { MyError } from '../../@types/my-error';
-import { materializeMemberRichmenu } from '../richmenu/richmenuService';
+import { getPublishedMemberRichmenu } from '../richmenu/richmenuService';
 import { SiteLineSettingsService } from '../siteSettings';
 
 const LINE_TIMEOUT_MS = 10000;
@@ -40,7 +40,7 @@ const processMemberMenu = async (memberId: string): Promise<number> => {
     try {
       const member = await AppDataSource.manager.findOneBy(LineMember, { id: memberId });
       if (member?.friendStatus === 'followed' && queued.desiredRichmenuKey)
-        menuId = await materializeMemberRichmenu(queued.desiredRichmenuKey);
+        menuId = await getPublishedMemberRichmenu(queued.desiredRichmenuKey);
     } catch (error) {
       preparationError = error;
     }

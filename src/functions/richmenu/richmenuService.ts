@@ -55,15 +55,18 @@ interface LineRichmenu {
 
 export const listRichmenus = async (status?: RichmenuStatus) => {
   const params: unknown[] = [];
-  const where = status ? 'WHERE status = ?' : '';
-  if (status) {
-    params.push(status);
-  }
+  const publishedCondition = "status = 'published' AND COALESCE(lineRchmenuId, '') <> ''";
+  const where =
+    status === 'published'
+      ? `WHERE ${publishedCondition}`
+      : status === 'draft'
+      ? `WHERE NOT (${publishedCondition})`
+      : '';
 
-  const rows = await AppDataSource.query(
+  const rows = (await AppDataSource.query(
     `SELECT * FROM richmenu ${where} ORDER BY updatedAt DESC, createdAt DESC`,
     params
-  ) as RichmenuRow[];
+  )) as RichmenuRow[];
 
   return {
     items: rows.map(toRichmenuDto),
@@ -85,35 +88,40 @@ export const createRichmenu = async (payload: SaveRichmenuRequest) => {
   const now = new Date();
   const richmenuKey = randomUUID();
   const normalized = normalizeSavePayload(payload);
+  const lineId = normalized.status === 'published' ? await publishLineImage(preparedMenu(richmenuKey, normalized)) : '';
 
-  await AppDataSource.query(
-    `INSERT INTO richmenu
+  try {
+    await AppDataSource.query(
+      `INSERT INTO richmenu
       (richmenuKey, areas, queryListKeywords, width, height, chatBarText, selected, enable, type, status,
         name, lineRchmenuId, isDefault, imageUrl, assetKey, startDateTime, endDateTime, createdAt, updatedAt)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      richmenuKey,
-      JSON.stringify(normalized.areas),
-      JSON.stringify(normalized.queryListKeywords),
-      normalized.width,
-      normalized.height,
-      normalized.chatBarText,
-      normalized.selected,
-      normalized.enable,
-      normalized.type,
-      normalized.status,
-      normalized.name,
-      '',
-      false,
-      normalized.imageUrl,
-      normalized.assetKey,
-      normalized.startDateTime ? new Date(normalized.startDateTime) : null,
-      normalized.endDateTime ? new Date(normalized.endDateTime) : null,
-      now,
-      now,
-    ]
-  );
-
+      [
+        richmenuKey,
+        JSON.stringify(normalized.areas),
+        JSON.stringify(normalized.queryListKeywords),
+        normalized.width,
+        normalized.height,
+        normalized.chatBarText,
+        normalized.selected,
+        normalized.enable,
+        normalized.type,
+        normalized.status,
+        normalized.name,
+        lineId,
+        false,
+        normalized.imageUrl,
+        normalized.assetKey,
+        normalized.startDateTime ? new Date(normalized.startDateTime) : null,
+        normalized.endDateTime ? new Date(normalized.endDateTime) : null,
+        now,
+        now,
+      ]
+    );
+  } catch (error) {
+    if (lineId) await cleanupUncommittedMenu(lineId);
+    throw error;
+  }
   await syncRichmenuAssetReference(richmenuKey, normalized);
   const item = await getRichmenuByKey(richmenuKey);
   return { result, item };
@@ -131,34 +139,45 @@ export const updateRichmenu = async (richmenuKey: string, payload: SaveRichmenuR
   }
 
   const normalized = normalizeSavePayload(payload);
-  await memberTransaction(async manager => {
-    if ((await new MemberConfigurationRepository(manager).findRichmenuReferences(richmenuKey)).length) throw new MyError(409, '此選單已綁定會員身份，請複製後再修改');
-    await manager.query(
-    `UPDATE richmenu
+  if (toBoolean(existing.isDefault)) throw new MyError(409, '預設選單請複製後再修改');
+  if ((await new MemberConfigurationRepository().findRichmenuReferences(richmenuKey)).length)
+    throw new MyError(409, '此選單已綁定會員身份，請複製後再修改');
+  const lineId = normalized.status === 'published' ? await publishLineImage(preparedMenu(richmenuKey, normalized)) : '';
+  try {
+    await memberTransaction(async (manager) => {
+      await assertMenuUnchanged(manager, existing);
+      if ((await new MemberConfigurationRepository(manager).findRichmenuReferences(richmenuKey)).length)
+        throw new MyError(409, '此選單已綁定會員身份，請複製後再修改');
+      await manager.query(
+        `UPDATE richmenu
      SET areas = ?, queryListKeywords = ?, width = ?, height = ?, chatBarText = ?, selected = ?,
        enable = ?, type = ?, status = ?, name = ?, imageUrl = ?, assetKey = ?, startDateTime = ?,
-       endDateTime = ?, lineRchmenuId = '', updatedAt = CURRENT_TIMESTAMP
+       endDateTime = ?, lineRchmenuId = ?, updatedAt = CURRENT_TIMESTAMP
      WHERE richmenuKey = ?`,
-    [
-      JSON.stringify(normalized.areas),
-      JSON.stringify(normalized.queryListKeywords),
-      normalized.width,
-      normalized.height,
-      normalized.chatBarText,
-      normalized.selected,
-      normalized.enable,
-      normalized.type,
-      normalized.status,
-      normalized.name,
-      normalized.imageUrl,
-      normalized.assetKey,
-      normalized.startDateTime ? new Date(normalized.startDateTime) : null,
-      normalized.endDateTime ? new Date(normalized.endDateTime) : null,
-      richmenuKey,
-    ]
-  );
-
-  });
+        [
+          JSON.stringify(normalized.areas),
+          JSON.stringify(normalized.queryListKeywords),
+          normalized.width,
+          normalized.height,
+          normalized.chatBarText,
+          normalized.selected,
+          normalized.enable,
+          normalized.type,
+          normalized.status,
+          normalized.name,
+          normalized.imageUrl,
+          normalized.assetKey,
+          normalized.startDateTime ? new Date(normalized.startDateTime) : null,
+          normalized.endDateTime ? new Date(normalized.endDateTime) : null,
+          lineId,
+          richmenuKey,
+        ]
+      );
+    });
+  } catch (error) {
+    if (lineId) await cleanupUncommittedMenu(lineId);
+    throw error;
+  }
 
   await syncRichmenuAssetReference(richmenuKey, normalized);
   const item = await getRichmenuByKey(richmenuKey);
@@ -202,8 +221,9 @@ export const deleteRichmenu = async (richmenuKey: string) => {
     throw new MyError(400, '預設圖文選單不可刪除');
   }
 
-  await memberTransaction(async manager => {
-    if ((await new MemberConfigurationRepository(manager).findRichmenuReferences(richmenuKey)).length) throw new MyError(409, '此選單仍被會員身份引用');
+  await memberTransaction(async (manager) => {
+    if ((await new MemberConfigurationRepository(manager).findRichmenuReferences(richmenuKey)).length)
+      throw new MyError(409, '此選單仍被會員身份引用');
     await manager.query('DELETE FROM richmenu WHERE richmenuKey = ?', [richmenuKey]);
   });
   await deleteProjectAssetReferencesForEntity(richmenuEntityType, richmenuKey);
@@ -224,7 +244,8 @@ export const setDefaultRichmenuByKey = async (richmenuKey: string) => {
     throw new MyError(400, '只有永久啟用圖文選單可設為預設');
   }
 
-  const lineRichmenuId = item.lineRchmenuId || await createLineRichmenuFromLocalItem(item);
+  const lineRichmenuId = item.lineRchmenuId;
+  if (!lineRichmenuId) throw new MyError(409, '請先將選單發布至 LINE');
 
   await LineMessageApiService.SetDefaultRichmenu(lineRichmenuId);
 
@@ -238,7 +259,7 @@ export const setDefaultRichmenuByKey = async (richmenuKey: string) => {
 };
 
 export const syncRichmenusFromLine = async (createdByUserId: string | null) => {
-  const lineRichmenus = await LineMessageApiService.GetRichmenuList() as LineRichmenu[];
+  const lineRichmenus = (await LineMessageApiService.GetRichmenuList()) as LineRichmenu[];
   const defaultLineRichmenuId = await LineMessageApiService.GetDefaultRichmenuId();
   let created = 0;
   let updated = 0;
@@ -330,7 +351,7 @@ export const syncRichmenusFromLine = async (createdByUserId: string | null) => {
 
 export const validateRichmenu = async (
   payload: SaveRichmenuRequest,
-  excludingRichmenuKey?: string,
+  excludingRichmenuKey?: string
 ): Promise<RichmenuValidationResult> => {
   const normalized = normalizeSavePayload(payload);
   const fieldErrors: Array<{ field: string; message: string }> = [];
@@ -376,7 +397,7 @@ export const validateRichmenu = async (
       fieldErrors.push({ field: 'schedule', message: '請設定上架與下架時間' });
     } else if (new Date(normalized.startDateTime) >= new Date(normalized.endDateTime)) {
       fieldErrors.push({ field: 'schedule', message: '下架時間必須晚於上架時間' });
-    } else if (normalized.status === 'published' && await hasScheduleOverlap(normalized, excludingRichmenuKey)) {
+    } else if (normalized.status === 'published' && (await hasScheduleOverlap(normalized, excludingRichmenuKey))) {
       fieldErrors.push({ field: 'schedule', message: '排程時間不可與已發布排程選單重疊' });
     }
   }
@@ -411,7 +432,7 @@ export const toRichmenuDto = (row: RichmenuRow): RichmenuDto => ({
   selected: toBoolean(row.selected),
   enable: row.enable === undefined ? true : toBoolean(row.enable),
   type: normalizeRichmenuType(row.type),
-  status: normalizeRichmenuStatus(row.status),
+  status: normalizeRichmenuStatus(row.status) === 'published' && row.lineRchmenuId ? 'published' : 'draft',
   name: row.name || '',
   lineRchmenuId: row.lineRchmenuId || '',
   isDefault: toBoolean(row.isDefault),
@@ -422,15 +443,16 @@ export const toRichmenuDto = (row: RichmenuRow): RichmenuDto => ({
 });
 
 const readRichmenuRow = async (richmenuKey: string): Promise<RichmenuRow | null> => {
-  const rows = await AppDataSource.query('SELECT * FROM richmenu WHERE richmenuKey = ? LIMIT 1', [richmenuKey]) as RichmenuRow[];
+  const rows = (await AppDataSource.query('SELECT * FROM richmenu WHERE richmenuKey = ? LIMIT 1', [
+    richmenuKey,
+  ])) as RichmenuRow[];
   return rows[0] ?? null;
 };
 
 const readRichmenuByLineId = async (lineRichmenuId: string): Promise<RichmenuRow | null> => {
-  const rows = await AppDataSource.query(
-    'SELECT * FROM richmenu WHERE lineRchmenuId = ? LIMIT 1',
-    [lineRichmenuId]
-  ) as RichmenuRow[];
+  const rows = (await AppDataSource.query('SELECT * FROM richmenu WHERE lineRchmenuId = ? LIMIT 1', [
+    lineRichmenuId,
+  ])) as RichmenuRow[];
   return rows[0] ?? null;
 };
 
@@ -470,7 +492,7 @@ const syncRichmenuAssetReference = async (richmenuKey: string, payload: SaveRich
 const findOrCreateLineRichmenuAsset = async (
   lineRichmenu: LineRichmenu,
   existingAssetKey: string | null,
-  createdByUserId: string | null,
+  createdByUserId: string | null
 ): Promise<ProjectAssetDto> => {
   if (existingAssetKey) {
     const existingAsset = await readProjectAsset(existingAssetKey);
@@ -525,11 +547,11 @@ const findOrCreateLineRichmenuAsset = async (
     [lineRichmenu.richMenuId, uploadResult.item.assetKey]
   );
 
-  return await readProjectAsset(uploadResult.item.assetKey) ?? uploadResult.item;
+  return (await readProjectAsset(uploadResult.item.assetKey)) ?? uploadResult.item;
 };
 
 const readSyncedLineRichmenuAsset = async (lineRichmenuId: string): Promise<ProjectAssetDto | null> => {
-  const rows = await AppDataSource.query(
+  const rows = (await AppDataSource.query(
     `SELECT assetKey
      FROM project_asset
      WHERE ownerModule = 'lineRichMenu'
@@ -538,7 +560,7 @@ const readSyncedLineRichmenuAsset = async (lineRichmenuId: string): Promise<Proj
      ORDER BY updatedAt DESC
      LIMIT 1`,
     [lineRichmenuId]
-  ) as Array<{ assetKey: string }>;
+  )) as Array<{ assetKey: string }>;
 
   return rows[0]?.assetKey ? await readProjectAsset(rows[0].assetKey) : null;
 };
@@ -583,7 +605,7 @@ const normalizeLineRichmenuAction = (action: LineRichmenuArea['action']): NonNul
 const validateArea = (
   area: RichmenuArea,
   index: number,
-  fieldErrors: Array<{ field: string; message: string }>,
+  fieldErrors: Array<{ field: string; message: string }>
 ): void => {
   const prefix = `areas.${index}`;
   const width = Number(area.width) || 0;
@@ -624,42 +646,41 @@ const normalizeAreaAction = (area: RichmenuArea): { type: string; text: string; 
 };
 
 const hasScheduleOverlap = async (payload: SaveRichmenuRequest, excludingRichmenuKey?: string): Promise<boolean> => {
-  const params: unknown[] = [
-    new Date(payload.endDateTime as string),
-    new Date(payload.startDateTime as string),
-  ];
+  const params: unknown[] = [new Date(payload.endDateTime as string), new Date(payload.startDateTime as string)];
   let excludingClause = '';
   if (excludingRichmenuKey) {
     excludingClause = 'AND richmenuKey <> ?';
     params.push(excludingRichmenuKey);
   }
 
-  const rows = await AppDataSource.query(
+  const rows = (await AppDataSource.query(
     `SELECT richmenuKey
      FROM richmenu
-     WHERE status = 'published'
+     WHERE status = 'published' AND COALESCE(lineRchmenuId, '') <> ''
        AND type = 'schedule'
        AND startDateTime < ?
        AND endDateTime > ?
        ${excludingClause}
      LIMIT 1`,
     params
-  ) as Array<{ richmenuKey: string }>;
+  )) as Array<{ richmenuKey: string }>;
 
   return rows.length > 0;
 };
 
 const normalizeKeywords = (keywords: unknown): string[] => {
-  return Array.from(new Set(
-    (Array.isArray(keywords) ? keywords : [])
-      .map((keyword) => `${keyword}`.trim())
-      .filter((keyword) => keyword.length > 0)
-  ));
+  return Array.from(
+    new Set(
+      (Array.isArray(keywords) ? keywords : [])
+        .map((keyword) => `${keyword}`.trim())
+        .filter((keyword) => keyword.length > 0)
+    )
+  );
 };
 
-const normalizeRichmenuType = (value: unknown): RichmenuType => value === 'schedule' ? 'schedule' : 'general';
+const normalizeRichmenuType = (value: unknown): RichmenuType => (value === 'schedule' ? 'schedule' : 'general');
 
-const normalizeRichmenuStatus = (value: unknown): RichmenuStatus => value === 'draft' ? 'draft' : 'published';
+const normalizeRichmenuStatus = (value: unknown): RichmenuStatus => (value === 'draft' ? 'draft' : 'published');
 
 const readJsonArray = <T>(value: unknown): T[] => {
   if (Array.isArray(value)) {
@@ -672,7 +693,7 @@ const readJsonArray = <T>(value: unknown): T[] => {
 
   try {
     const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed as T[] : [];
+    return Array.isArray(parsed) ? (parsed as T[]) : [];
   } catch {
     return [];
   }
@@ -707,18 +728,11 @@ const streamToBuffer = async (stream: Readable): Promise<Buffer> => {
 };
 
 const detectImageMimeType = (buffer: Buffer): 'image/jpeg' | 'image/png' | null => {
-  if (buffer.length >= 4
-    && buffer[0] === 0x89
-    && buffer[1] === 0x50
-    && buffer[2] === 0x4e
-    && buffer[3] === 0x47) {
+  if (buffer.length >= 4 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
     return 'image/png';
   }
 
-  if (buffer.length >= 3
-    && buffer[0] === 0xff
-    && buffer[1] === 0xd8
-    && buffer[2] === 0xff) {
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
     return 'image/jpeg';
   }
 
@@ -766,16 +780,14 @@ const createLineRichmenuFromLocalItem = async (item: RichmenuDto): Promise<strin
 
 const chooseLineRichmenuSize = (item: RichmenuDto): { width: number; height: number } => {
   const ratio = item.width > 0 ? item.height / item.width : 1686 / 2500;
-  return ratio <= 0.45
-    ? { width: 2500, height: 843 }
-    : { width: 2500, height: 1686 };
+  return ratio <= 0.45 ? { width: 2500, height: 843 } : { width: 2500, height: 1686 };
 };
 
 const toLineRichmenuArea = (
   area: RichmenuArea,
   item: RichmenuDto,
   lineSize: { width: number; height: number },
-  index: number,
+  index: number
 ) => {
   const action = normalizeAreaAction(area);
   const scaleX = lineSize.width / item.width;
@@ -811,20 +823,26 @@ const toLineRichmenuArea = (
 
 const buildLineRichmenuImage = async (
   publicUrl: string,
-  lineSize: { width: number; height: number },
+  lineSize: { width: number; height: number }
 ): Promise<Buffer> => {
-  const response = await axios.get<ArrayBuffer>(publicUrl, { responseType: 'arraybuffer', timeout: 10000, maxContentLength: 20 * 1024 * 1024 });
+  const response = await axios.get<ArrayBuffer>(publicUrl, {
+    responseType: 'arraybuffer',
+    timeout: 10000,
+    maxContentLength: 20 * 1024 * 1024,
+  });
   const source = Buffer.from(response.data);
   const sharp = await import('sharp');
   let quality = 90;
-  let output = await sharp.default(source)
+  let output = await sharp
+    .default(source)
     .resize(lineSize.width, lineSize.height, { fit: 'fill' })
     .jpeg({ quality, mozjpeg: true })
     .toBuffer();
 
   while (output.byteLength > 1024 * 1024 && quality > 50) {
     quality -= 10;
-    output = await sharp.default(source)
+    output = await sharp
+      .default(source)
       .resize(lineSize.width, lineSize.height, { fit: 'fill' })
       .jpeg({ quality, mozjpeg: true })
       .toBuffer();
@@ -841,19 +859,68 @@ const clampInt = (value: number, min: number, max: number): number => {
   return Math.min(Math.max(value, min), max);
 };
 
-// 發布可共用的 LINE 選單，不改動 OA 預設選單。
-export const materializeMemberRichmenu = async (richmenuKey: string): Promise<string> => {
+// 會員同步只取已發布 ID，不能把發布錯誤延遲到會員身份切換時。
+export const getPublishedMemberRichmenu = async (richmenuKey: string): Promise<string> => {
   const item = await getRichmenuByKey(richmenuKey);
-  if (!item || item.type !== 'general' || item.status !== 'published' || !item.enable) throw new MyError(400, '會員選單已失效');
-  if (item.lineRchmenuId) return item.lineRchmenuId;
-  const created = await createLineRichmenuFromLocalItem(item);
-  const result = await AppDataSource.query(
-    "UPDATE richmenu SET lineRchmenuId = ? WHERE richmenuKey = ? AND (lineRchmenuId IS NULL OR lineRchmenuId = '')",
-    [created, richmenuKey]
-  ) as { affectedRows: number };
-  if (result.affectedRows === 1) return created;
-  await LineMessageApiService.DeleteRichmenu(created);
-  const current = await getRichmenuByKey(richmenuKey);
-  if (!current?.lineRchmenuId) throw new MyError(400, '會員選單已失效');
-  return current.lineRchmenuId;
+  if (!item || item.type !== 'general' || item.status !== 'published' || !item.enable || !item.lineRchmenuId)
+    throw new MyError(409, '請先將會員圖文選單發布至 LINE 並啟用');
+  return item.lineRchmenuId;
+};
+
+const preparedMenu = (richmenuKey: string, payload: SaveRichmenuRequest): RichmenuDto => ({
+  ...payload,
+  richmenuKey,
+  lineRchmenuId: '',
+  isDefault: false,
+  createdAt: '',
+  updatedAt: '',
+});
+
+const cleanupUncommittedMenu = async (lineId: string): Promise<void> => {
+  try {
+    await LineMessageApiService.DeleteRichmenu(lineId);
+  } catch {
+    console.warn('未提交的 LINE 選單清理失敗，需人工檢查');
+  }
+};
+
+const publishLineImage = async (item: RichmenuDto): Promise<string> => {
+  try {
+    return await createLineRichmenuFromLocalItem(item);
+  } catch (error) {
+    if (error instanceof MyError) throw error;
+    throw new MyError(502, '發布至 LINE 失敗，請確認 LINE 設定與圖片後重試');
+  }
+};
+
+const assertMenuUnchanged = async (manager: import('typeorm').EntityManager, expected: RichmenuRow): Promise<void> => {
+  const rows = (await manager.query('SELECT * FROM richmenu WHERE richmenuKey = ? FOR UPDATE', [
+    expected.richmenuKey,
+  ])) as RichmenuRow[];
+  if (!rows[0] || JSON.stringify(rows[0]) !== JSON.stringify(expected))
+    throw new MyError(409, '選單資料已變更，請重新載入後發布');
+};
+
+export const publishRichmenu = async (richmenuKey: string): Promise<RichmenuDto> => {
+  const existing = await readRichmenuRow(richmenuKey);
+  if (!existing) throw new MyError(404, '找不到圖文選單');
+  const item = toRichmenuDto(existing);
+  if (item.status === 'published' && item.lineRchmenuId) return item;
+  const payload: SaveRichmenuRequest = { ...item, assetKey: item.assetKey ?? '', status: 'published' };
+  const validation = await validateRichmenu(payload, richmenuKey);
+  if (!validation.isValid) throw new MyError(400, validation.fieldErrors.map((error) => error.message).join('；'));
+  const lineId = await publishLineImage(item);
+  try {
+    await memberTransaction(async (manager) => {
+      await assertMenuUnchanged(manager, existing);
+      await manager.query(
+        "UPDATE richmenu SET status = 'published', lineRchmenuId = ?, updatedAt = CURRENT_TIMESTAMP WHERE richmenuKey = ?",
+        [lineId, richmenuKey]
+      );
+    });
+  } catch (error) {
+    await cleanupUncommittedMenu(lineId);
+    throw error;
+  }
+  return { ...item, status: 'published', lineRchmenuId: lineId };
 };
